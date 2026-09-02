@@ -92,6 +92,30 @@ export const INEC_ENDPOINTS = Object.freeze({
  * project — captured verbatim from cvr.inecnigeria.org/PublicApi/ on
  * 2026-09-01 (see fixtures/*-live.json for real captured examples).
  *
+ * BUG FIXED (national import repair, 2026-09-02): a real, live polling-
+ * unit label can wrap onto a second physical line INSIDE INEC's own JSON
+ * string value (e.g. `"003 - NDI OJI ABAM I CENT. SCH. \nNDI OJI ABAM."`
+ * — a literal embedded newline before the rest of the address). The
+ * original pattern used `.` for the name capture, which in JavaScript
+ * never matches `\n` without the `s` (dotAll) flag — so on any label with
+ * an embedded newline the WHOLE match failed, `displayNumber` fell back
+ * to null, and the raw, still-prefixed label became `name` instead. This
+ * was NOT missing source data — the display number was always there,
+ * immediately after the leading digits — it was a parsing bug. Because
+ * `code` downstream is exactly this `displayNumber` (see
+ * acquire-national-snapshot.mjs's own `code: pu.displayNumber`), the bug
+ * is what produced `NULL` `code`s that later violated
+ * `geography_polling_units.code`'s `NOT NULL` constraint at write time.
+ * Fixed by capturing with `[\s\S]` (matches everything, including
+ * newlines) instead of `.`, and normalizing any internal whitespace run
+ * (including the embedded newline itself) down to a single space in the
+ * extracted name. See
+ * test/election-geography-inec-reconciliation.consumer.mjs's own A8/A9
+ * for the real captured example this fixes, and this repair's own
+ * preflight (import-plan.mjs's `preflightPuCodes`) for how any PU whose
+ * code is STILL missing (a genuinely different problem, not this one) is
+ * surfaced honestly rather than silently written as null or fabricated.
+ *
  * @returns [{ id, displayNumber, name }] — `name` has the leading
  *   "NN - " display-number prefix stripped (kept separately as
  *   `displayNumber`, INEC's own within-parent sequence number, distinct
@@ -103,10 +127,10 @@ export function parseCascadeResponse(json) {
   return Object.entries(obj)
     .filter(([key]) => key !== "0" && key !== "selected")
     .map(([id, label]) => {
-      const match = String(label ?? "").match(/^(\d+)\s*-\s*(.+)$/);
+      const match = String(label ?? "").match(/^(\d+)\s*-\s*([\s\S]+)$/);
       return match
-        ? { id, displayNumber: match[1], name: match[2].trim() }
-        : { id, displayNumber: null, name: String(label ?? "").trim() };
+        ? { id, displayNumber: match[1], name: match[2].replace(/\s+/g, " ").trim() }
+        : { id, displayNumber: null, name: String(label ?? "").replace(/\s+/g, " ").trim() };
     });
 }
 
