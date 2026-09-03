@@ -14,6 +14,7 @@
 import { createInvitation, revokeInvitation, acceptInvitation } from "../src/domains/election/invitations/write.js";
 import { projectElection } from "../src/domains/election/projections.js";
 import { ELECTION_EVENT_TYPES } from "../src/domains/election/events.js";
+import { backfillResponsibilitySlots, makeWriteResponsibilityHandler } from "./lib/fakeWriteResponsibility.mjs";
 
 let pass = 0, fail = 0;
 const ok = (n, c) => { if (c) { pass++; console.log(`  ok   ${n}`); } else { fail++; console.log(`  FAIL ${n}`); } };
@@ -23,15 +24,32 @@ console.log("\nCAMPAIGN ORGANISATION ONBOARDING — Invitations\n");
 // ---------- fake environment: campaign_members + election_events + campaign_invitations + geography ----------
 function fakeEnv({ campaignMembers = [], events = [], geography = {} } = {}) {
   const invitations = [];
-  const eventRows = events.map((e) => ({ event_id: e.eventId, campaign_id: e.campaign, type: e.type, payload: e }));
+  const eventRows = events.map((e) => ({ event_id: e.eventId, campaign_id: e.campaign, type: e.type, actor: e.actor ?? null, payload: e }));
   const authUsersByUid = new Map(); // uid -> email
+  // ELECTIONCANON 1.1 PHASE 1 — the responsibility_slots current-state
+  // projection, backfilled once from `events` exactly like the real
+  // migration's own one-time backfill, then mutated live by
+  // write_responsibility() below.
+  const responsibilitySlots = backfillResponsibilitySlots(eventRows);
+  const writeResponsibilityRpc = makeWriteResponsibilityHandler({
+    campaignMembers, eventRows, invitations, geography, slots: responsibilitySlots,
+  });
 
   function currentMemberRole(campaignId, uid) {
     return campaignMembers.find((m) => m.campaign_id === campaignId && m.person === uid && m.status === "active")?.member_role ?? null;
   }
+  // ELECTIONCANON 1.1 PHASE 1 — also checks responsibilitySlots (the
+  // current-state projection), not only raw responsibility.assigned
+  // events, mirroring create_campaign_invitation()'s own real-SQL update
+  // in supabase/migrations/20260903000000_election_responsibility_
+  // reassignment.sql — a coordinator who arrived via reassignment must be
+  // able to delegate invitations exactly like one who arrived via the
+  // original first assignment.
   function hasResponsibility(campaignId, level, geographyRef, uid) {
     const role = currentMemberRole(campaignId, uid);
     if (role === "owner" || role === "manager") return true;
+    const slot = responsibilitySlots.get(`${campaignId}|${level}|${geographyRef}`);
+    if (slot?.current_person === `invite:${campaignId}:${uid}`) return true;
     return eventRows.some((r) => r.campaign_id === campaignId && r.type === "responsibility.assigned" &&
       r.payload.level === level && r.payload.geographyRef === geographyRef &&
       r.payload.person === `invite:${campaignId}:${uid}`);
@@ -92,7 +110,7 @@ function fakeEnv({ campaignMembers = [], events = [], geography = {} } = {}) {
         if (!inv) return { data: null, error: { message: "this invitation does not exist" } };
         if (inv.status === "accepted") {
           if (inv.accepted_by === uid) {
-            return { data: [{ campaign_id: inv.campaign_id, intended_member_role: inv.intended_member_role, intended_responsibility_role: inv.intended_responsibility_role, intended_level: inv.intended_level, intended_geography_ref: inv.intended_geography_ref, invited_name: inv.invited_name }], error: null };
+            return { data: [{ id: inv.id, campaign_id: inv.campaign_id, intended_member_role: inv.intended_member_role, intended_responsibility_role: inv.intended_responsibility_role, intended_level: inv.intended_level, intended_geography_ref: inv.intended_geography_ref, invited_name: inv.invited_name }], error: null };
           }
           return { data: null, error: { message: "this invitation has already been accepted" } };
         }
@@ -109,8 +127,10 @@ function fakeEnv({ campaignMembers = [], events = [], geography = {} } = {}) {
           campaignMembers.push({ campaign_id: inv.campaign_id, person: uid, member_role: inv.intended_member_role, status: "active" });
         }
         inv.status = "accepted"; inv.accepted_at = new Date().toISOString(); inv.accepted_by = uid;
-        return { data: [{ campaign_id: inv.campaign_id, intended_member_role: inv.intended_member_role, intended_responsibility_role: inv.intended_responsibility_role, intended_level: inv.intended_level, intended_geography_ref: inv.intended_geography_ref, invited_name: inv.invited_name }], error: null };
+        return { data: [{ id: inv.id, campaign_id: inv.campaign_id, intended_member_role: inv.intended_member_role, intended_responsibility_role: inv.intended_responsibility_role, intended_level: inv.intended_level, intended_geography_ref: inv.intended_geography_ref, invited_name: inv.invited_name }], error: null };
       }
+
+      if (name === "write_responsibility") return writeResponsibilityRpc(client.__uid, params);
 
       if (name === "revoke_campaign_invitation") {
         const uid = client.__uid;
@@ -172,7 +192,11 @@ const OWNER = "owner-uid", STAFF_NO_ROLE = "staff-no-role-uid", LGA_COORD = "lga
 const OKPE = "lga-okpe", SAPELE = "lga-sapele";
 const WARD_1 = "ward-1"; // in Okpe
 
-const GEOGRAPHY = { wards: [{ id: WARD_1, lgaId: OKPE }], pollingUnits: [{ id: "pu-1", wardId: WARD_1, code: "PU001" }] };
+const GEOGRAPHY = {
+  lgas: [{ id: OKPE }, { id: SAPELE }],
+  wards: [{ id: WARD_1, lgaId: OKPE }],
+  pollingUnits: [{ id: "pu-1", wardId: WARD_1, code: "PU001" }],
+};
 
 function baseEnv() {
   return fakeEnv({

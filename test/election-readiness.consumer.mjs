@@ -136,7 +136,18 @@ const stamp = (e, i, prefix) => Object.freeze({ ...e, eventId: `${prefix}-${i}`,
     stamp(wardStatusEvent({ ward: "Ward 1", campaign: CAMPAIGN_A, status: "on-track" }), 4, "p"),
   ].reverse();
   const viewPartial = projectElection(logPartial, CAMPAIGN_A);
-  const rPartial = deriveReadiness(viewPartial);
+  // ELECTIONCANON 1.1 PHASE 1 — WARD_ASSIGNMENT now sources from
+  // responsibility_slots (a NEW, second, optional deriveReadiness()
+  // argument), not the legacy `ward.organisation` field these fixtures
+  // still set (see readiness.js's own header on why that field is left
+  // untouched but no longer read here). This part of the file is testing
+  // WARD_STATUS_HEALTH/candidate mechanics, not the new responsibility
+  // model — `bothWardsAssigned` supplies a current coordinator for every
+  // ward already in this fixture, preserving this section's ORIGINAL
+  // intent (both dimensions COMPLETE for a healthy, assigned ward) without
+  // conflating it with the dedicated WARD_ASSIGNMENT tests added below.
+  const bothWardsAssigned = { "Ward 1": "person-team-1", "Ward 2": "person-team-2" };
+  const rPartial = deriveReadiness(viewPartial, bothWardsAssigned);
 
   ok("B1. a registered candidate reads COMPLETE",
      rPartial.claims.find((c) => c.dimension === "CANDIDATE_REGISTERED").status === STATUS.COMPLETE);
@@ -156,7 +167,7 @@ const stamp = (e, i, prefix) => Object.freeze({ ...e, eventId: `${prefix}-${i}`,
     stamp(wardStatusEvent({ ward: "Ward 2", campaign: CAMPAIGN_A, status: "on-track" }), 5, "p"),
   ];
   const viewFull = projectElection(logFull, CAMPAIGN_A);
-  const rFull = deriveReadiness(viewFull);
+  const rFull = deriveReadiness(viewFull, bothWardsAssigned);
   ok("C1. once every claim is COMPLETE, gaps is empty",
      rFull.claims.every((c) => c.status === STATUS.COMPLETE) && rFull.gaps.length === 0);
   ok("C2. known-ward coverage counts reflect exactly 2 known, 2 assigned, 2 healthy",
@@ -171,13 +182,64 @@ const stamp = (e, i, prefix) => Object.freeze({ ...e, eventId: `${prefix}-${i}`,
     stamp(wardStatusEvent({ ward: "Ward 2", campaign: CAMPAIGN_A, status: "behind", reason: "no agents recruited" }), 5, "p"),
   ];
   const viewAtRisk = projectElection(logAtRisk, CAMPAIGN_A);
-  const rAtRisk = deriveReadiness(viewAtRisk);
+  const rAtRisk = deriveReadiness(viewAtRisk, bothWardsAssigned);
   ok("B4. a non-healthy reported status reads AT_RISK, not FAILED, not COMPLETE",
      rAtRisk.claims.find((c) => c.source_entity === "wards.Ward 2" && c.dimension === "WARD_STATUS_HEALTH").status === STATUS.AT_RISK);
   ok("B5. the gap for an AT_RISK ward cites the real recorded reason verbatim, never a summarized risk score",
      rAtRisk.gaps.find((g) => g.what.includes("Ward 2")).why_it_matters.includes("no agents recruited"));
   ok("B6. owner/deadline/dependency are honestly UNKNOWN — no Canon field backs any of them",
      rAtRisk.gaps.every((g) => g.owner === "UNKNOWN" && g.deadline === "UNKNOWN" && g.dependency === "UNKNOWN"));
+}
+
+// =================================================================
+// PART B2 — ELECTIONCANON 1.1 PHASE 1: WARD_ASSIGNMENT now reads from
+// responsibility_slots (the real, geography-validated Organisation
+// system), never the legacy `ward.organisation` field — see
+// studio/readiness.js's own header. These tests exercise the NEW
+// semantics directly; CANDIDATE_REGISTERED and WARD_STATUS_HEALTH are
+// asserted UNCHANGED throughout (same fixture, same expected values as
+// PART A/B/C/D above), proving this redesign is additive, not a
+// regression to the two dimensions it does not touch.
+// =================================================================
+{
+  const log = [
+    stamp(candidateEvent({ candidate: "cand-B2", campaign: CAMPAIGN_A, name: "N", office: "O", constituency: "C", party: "PTY" }), 1, "b2"),
+    stamp(wardAssignedEvent({ ward: "Ward 1", campaign: CAMPAIGN_A, organisation: "Legacy Org — no longer read for readiness" }), 2, "b2"),
+    stamp(wardStatusEvent({ ward: "Ward 1", campaign: CAMPAIGN_A, status: "on-track" }), 3, "b2"),
+    stamp(wardAssignedEvent({ ward: "Ward 2", campaign: CAMPAIGN_A, organisation: "Also legacy — irrelevant now" }), 4, "b2"),
+  ].reverse();
+  const view = projectElection(log, CAMPAIGN_A);
+
+  // No wardResponsibility supplied at all (deriveReadiness's default {}).
+  const rNoResponsibility = deriveReadiness(view);
+  ok("B2-1. WARD_ASSIGNMENT is INCOMPLETE for a ward with a real, populated legacy `organisation` field but NO responsibility_slots data supplied — proves the legacy field is genuinely no longer consulted",
+     rNoResponsibility.claims.find((c) => c.dimension === "WARD_ASSIGNMENT" && c.source_entity.includes("Ward 1")).status === STATUS.INCOMPLETE);
+  ok("B2-2. CANDIDATE_REGISTERED is UNCHANGED by this redesign — still COMPLETE from the real candidate.registered event",
+     rNoResponsibility.candidateRegistered === true && rNoResponsibility.claims.find((c) => c.dimension === "CANDIDATE_REGISTERED").status === STATUS.COMPLETE);
+  ok("B2-3. WARD_STATUS_HEALTH is UNCHANGED by this redesign — still COMPLETE for Ward 1's real on-track status report",
+     rNoResponsibility.claims.find((c) => c.dimension === "WARD_STATUS_HEALTH" && c.source_entity.includes("Ward 1")).status === STATUS.COMPLETE);
+
+  // Ward 1 has a real current WARD_COORDINATOR; Ward 2 does not.
+  const wardResponsibility = { "Ward 1": "invite:camp-a:coordinator-uid" };
+  const rWithResponsibility = deriveReadiness(view, wardResponsibility);
+  ok("B2-4. WARD_ASSIGNMENT = COMPLETE means exactly: a current WARD_COORDINATOR responsibility exists for this ward's real geography",
+     rWithResponsibility.claims.find((c) => c.dimension === "WARD_ASSIGNMENT" && c.source_entity.includes("Ward 1")).status === STATUS.COMPLETE);
+  ok("B2-5. WARD_ASSIGNMENT = INCOMPLETE means exactly: no current holder — Ward 2 correctly reads incomplete despite its legacy organisation field being set",
+     rWithResponsibility.claims.find((c) => c.dimension === "WARD_ASSIGNMENT" && c.source_entity.includes("Ward 2")).status === STATUS.INCOMPLETE);
+  ok("B2-6. a vacated ward (present in the map with a null current person — the real vacate case) reads INCOMPLETE, not a crash and not silently COMPLETE",
+     deriveReadiness(view, { "Ward 1": null }).claims.find((c) => c.dimension === "WARD_ASSIGNMENT" && c.source_entity.includes("Ward 1")).status === STATUS.INCOMPLETE);
+
+  // Reassignment updates readiness: Alice covers Ward 1, then is vacated —
+  // simulates exactly what coverage.js's getWardResponsibilityMap() would
+  // hand deriveReadiness() before and after a real reassignment.
+  const beforeVacate = deriveReadiness(view, { "Ward 1": "invite:camp-a:alice-uid" });
+  const afterVacate = deriveReadiness(view, { "Ward 1": null });
+  ok("B2-7. reassignment (here: a vacate) genuinely changes readiness — COMPLETE before, INCOMPLETE after, from the SAME Canon view",
+     beforeVacate.claims.find((c) => c.dimension === "WARD_ASSIGNMENT" && c.source_entity.includes("Ward 1")).status === STATUS.COMPLETE &&
+     afterVacate.claims.find((c) => c.dimension === "WARD_ASSIGNMENT" && c.source_entity.includes("Ward 1")).status === STATUS.INCOMPLETE);
+
+  ok("B2-8. deriveReadiness(view) with NO second argument never throws — the new parameter is genuinely optional, defaulting to {}",
+     (() => { try { deriveReadiness(view); return true; } catch { return false; } })());
 }
 
 // =================================================================

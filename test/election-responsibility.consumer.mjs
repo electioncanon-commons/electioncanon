@@ -16,46 +16,61 @@ import {
 import { deriveTerritoryReadiness } from "../src/domains/election/studio/territoryReadiness.js";
 import { projectElection } from "../src/domains/election/projections.js";
 import { ELECTION_EVENT_TYPES } from "../src/domains/election/events.js";
+import { backfillResponsibilitySlots, makeWriteResponsibilityHandler } from "./lib/fakeWriteResponsibility.mjs";
 
 let pass = 0, fail = 0;
 const ok = (n, c) => { if (c) { pass++; console.log(`  ok   ${n}`); } else { fail++; console.log(`  FAIL ${n}`); } };
 
 console.log("\nELECTORAL GEOGRAPHY — Responsibility + Territory Readiness\n");
 
-// Simulates BOTH unique constraints election_events now carries (see
-// supabase/migrations/20260830000000_election_responsibility_slot_uniqueness.sql):
-// event_id (idempotent replay) and the NEW partial index on
-// (campaign_id, level, geographyRef) for responsibility.assigned events
-// only — proving geography/write.js's insertEvent() tells the two apart
-// correctly rather than treating every 23505 as a safe-to-ignore replay.
+// ELECTIONCANON 1.1 PHASE 1 — executeAssignResponsibility() now calls
+// client.rpc('write_responsibility', ...) instead of a raw
+// election_events insert (see geography/write.js's own header on why:
+// the split-brain-consistency fix this project's Design Gate 1A found).
+// This fake client's `.rpc()` handler is test/lib/
+// fakeWriteResponsibility.mjs's shared, instruction-for-instruction
+// mirror of the real SQL function — the SAME "prove the real security
+// logic" discipline test/election-invitations.consumer.mjs's own header
+// already established. `.from('election_events').insert()` is STILL used
+// directly by this file's own territory-readiness fixture (TERRITORY.SET
+// events, seeded directly, not through any propose/execute pair) and
+// still simulates the event_id uniqueness constraint for that path — it
+// is UNCHANGED for anything that isn't a responsibility write.
 function fakeEventClient() {
-  const rows = [];
-  return {
-    rows,
+  const eventRows = [];
+  const campaignMembers = [
+    { campaign_id: CAMPAIGN_A, person: USER, member_role: "owner", status: "active" },
+    { campaign_id: CAMPAIGN_B, person: USER, member_role: "owner", status: "active" },
+  ];
+  const geography = { lgas: [{ id: LGA_OKPE }, { id: LGA_SAPELE }, { id: LGA_UVWIE }], wards: [{ id: "ward-1", lgaId: LGA_OKPE }] };
+  const slots = backfillResponsibilitySlots(eventRows);
+  const writeResponsibility = makeWriteResponsibilityHandler({ campaignMembers, eventRows, geography, slots });
+
+  const client = {
+    __uid: USER,
+    // A LIVE getter, not a snapshot — logFor() (below) reads `client.rows`
+    // AFTER writes have happened, so this must reflect eventRows at
+    // access time, not at fakeEventClient() construction time.
+    get rows() { return eventRows.map((r) => ({ table: "election_events", ...r })); },
+    async rpc(name, params) {
+      if (name === "write_responsibility") return writeResponsibility(client.__uid, params);
+      return { data: null, error: { message: `unmocked rpc ${name}` } };
+    },
     from(table) {
       return {
         insert: async (row) => {
-          if (rows.some((r) => r.table === table && r.event_id === row.event_id)) {
+          if (eventRows.some((r) => r.event_id === row.event_id)) {
             const err = new Error('duplicate key value violates unique constraint "election_events_event_id_key"');
             err.code = "23505";
             return { error: err };
           }
-          if (row.type === "responsibility.assigned") {
-            const slotTaken = rows.some((r) => r.table === table && r.campaign_id === row.campaign_id &&
-              r.type === "responsibility.assigned" &&
-              r.payload?.level === row.payload?.level && r.payload?.geographyRef === row.payload?.geographyRef);
-            if (slotTaken) {
-              const err = new Error('duplicate key value violates unique constraint "election_events_responsibility_slot_uidx"');
-              err.code = "23505";
-              return { error: err };
-            }
-          }
-          rows.push({ table, ...row });
+          eventRows.push({ event_id: row.event_id, campaign_id: row.campaign_id, type: row.type, actor: row.actor, payload: row.payload });
           return { error: null };
         },
       };
     },
   };
+  return client;
 }
 const logFor = (client, campaignId) =>
   client.rows.filter((r) => r.table === "election_events" && r.campaign_id === campaignId).map((r) => r.payload).reverse();

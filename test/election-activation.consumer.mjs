@@ -127,6 +127,14 @@ function fakeClient(store, asUser) {
           },
         };
       }
+      if (table === "responsibility_slots") {
+        // ELECTIONCANON 1.1 PHASE 1 (BLOCKER FIX PASS F2) — getElectionContext()
+        // now also queries this table (coverage.js's getWardResponsibilityMap())
+        // for CANDIDATE_CAMPAIGN readiness. This fixture has none — an honest
+        // empty result, exactly what a real campaign with no responsibility
+        // data yet would see.
+        return { select: () => ({ eq: () => ({ eq: () => ({ in: async () => ({ data: [], error: null }) }) }) }) };
+      }
       throw new Error(`fakeClient: unexpected table "${table}"`);
     },
     async rpc(name, args) {

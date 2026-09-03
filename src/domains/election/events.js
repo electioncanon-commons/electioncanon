@@ -112,6 +112,20 @@ export const ELECTION_EVENT_TYPES = Object.freeze({
   RESPONSIBILITY: Object.freeze({
     ASSIGNED:       "responsibility.assigned",
     STATUS_CHANGED: "responsibility.status_changed",
+    // ELECTIONCANON 1.1 PHASE 1 — closes the "assignment is permanent"
+    // gap a slot's first responsibility.assigned event created (see
+    // supabase/migrations/20260830000000_election_responsibility_slot_
+    // uniqueness.sql's own header: "it does not add a reassign/unassign
+    // event/mechanism — that is a real product decision this pass does
+    // not make silently"). This is that decision. `previousPerson`/
+    // `newPerson` are DELIBERATELY absent from REQUIRED_FIELDS_BY_TYPE
+    // below — both can legitimately be null (a vacate, or reassigning
+    // FROM an already-vacated slot), and the generic validator's
+    // `== null` check would wrongly treat that as "missing" rather than
+    // "explicitly stated." responsibilityReassignedEvent() itself
+    // enforces both are genuinely PROVIDED (undefined is rejected; null
+    // is accepted) — see its own header.
+    REASSIGNED: "responsibility.reassigned",
   }),
 });
 
@@ -163,6 +177,10 @@ const REQUIRED_FIELDS_BY_TYPE = Object.freeze({
     ["responsibility", "campaign", "person", "level", "geographyRef", "responsibilityRole", "summary"],
   [ELECTION_EVENT_TYPES.RESPONSIBILITY.STATUS_CHANGED]:
     ["responsibility", "campaign", "summary"],
+  // previousPerson/newPerson intentionally excluded — see this event
+  // type's own declaration above for why.
+  [ELECTION_EVENT_TYPES.RESPONSIBILITY.REASSIGNED]:
+    ["responsibility", "campaign", "level", "geographyRef", "responsibilityRole", "summary"],
 });
 
 /**
@@ -199,6 +217,7 @@ export const MISSION_POLICY = Object.freeze({
   [ELECTION_EVENT_TYPES.TERRITORY.SET]:                  MISSION_POLICY_LEVEL.FORBIDDEN,
   [ELECTION_EVENT_TYPES.RESPONSIBILITY.ASSIGNED]:        MISSION_POLICY_LEVEL.FORBIDDEN,
   [ELECTION_EVENT_TYPES.RESPONSIBILITY.STATUS_CHANGED]:  MISSION_POLICY_LEVEL.FORBIDDEN,
+  [ELECTION_EVENT_TYPES.RESPONSIBILITY.REASSIGNED]:      MISSION_POLICY_LEVEL.FORBIDDEN,
 });
 
 /**
@@ -228,6 +247,7 @@ export const EVENT_CAPABILITY = Object.freeze({
   [ELECTION_EVENT_TYPES.TERRITORY.SET]:                 "election.geography.territory_set",
   [ELECTION_EVENT_TYPES.RESPONSIBILITY.ASSIGNED]:       "election.geography.responsibility_assign",
   [ELECTION_EVENT_TYPES.RESPONSIBILITY.STATUS_CHANGED]: "election.geography.responsibility_status",
+  [ELECTION_EVENT_TYPES.RESPONSIBILITY.REASSIGNED]:     "election.geography.responsibility_reassign",
 });
 
 // ALPHA 1.0 — Mobilization and Election Day carry NO REQUIRED_ACTOR_KIND
@@ -682,6 +702,54 @@ export function responsibilityAssignedEvent({ responsibility, campaign, person, 
   });
 }
 
+// ELECTIONCANON 1.1 PHASE 1 — the reassignment/handoff/vacate event. Reuses
+// the SAME `responsibility` subject id as the slot's original ASSIGNED
+// event (never a fresh id) — the slot's identity persists across its whole
+// lifetime, exactly how STATUS_CHANGED already reuses it. `level`/
+// `geographyRef`/`responsibilityRole` are carried forward unchanged (a
+// WARD_COORDINATOR slot stays a WARD_COORDINATOR slot; reassignment
+// replaces the PERSON, never the slot's own identity). `previousPerson`/
+// `newPerson` are BOTH required ARGUMENTS (rejecting `undefined`) but both
+// may legitimately be `null` — `previousPerson: null` means reassigning
+// from an already-vacated slot; `newPerson: null` means vacating with no
+// replacement yet (see this codebase's Design Gate 1 Part 7: 1.1
+// deliberately supports exactly one handoff mechanism, not a richer
+// temporary/scheduled vocabulary). Both are written EXPLICITLY into the
+// payload (never compacted away), because for this one event type `null`
+// is meaningfully different from "field absent" — see REQUIRED_FIELDS_BY_
+// TYPE's own comment on why these two fields are deliberately excluded
+// from that generic, null-means-missing check. `reason` stays honestly
+// optional free text, matching `incidentReportedEvent`'s own `severity`
+// precedent — never inferred, never categorised into an invented enum.
+export function responsibilityReassignedEvent({ responsibility, campaign, level, geographyRef, responsibilityRole,
+  previousPerson, newPerson, reason, summary, ...extra }) {
+  if (responsibility == null) throw new Error("responsibilityReassignedEvent: `responsibility` is required");
+  if (campaign == null) throw new Error("responsibilityReassignedEvent: `campaign` is required");
+  if (level == null) throw new Error("responsibilityReassignedEvent: `level` is required");
+  if (geographyRef == null) throw new Error("responsibilityReassignedEvent: `geographyRef` is required");
+  if (responsibilityRole == null) throw new Error("responsibilityReassignedEvent: `responsibilityRole` is required");
+  if (previousPerson === undefined) throw new Error("responsibilityReassignedEvent: `previousPerson` is required (pass null for an already-vacant slot)");
+  if (newPerson === undefined) throw new Error("responsibilityReassignedEvent: `newPerson` is required (pass null to vacate)");
+  const event = createEvent({
+    type: ELECTION_EVENT_TYPES.RESPONSIBILITY.REASSIGNED,
+    responsibility, campaign, level, geographyRef, responsibilityRole, ...compact({ reason }),
+    summary: summary ?? (newPerson
+      ? `${level} ${geographyRef} reassigned from ${previousPerson ?? "vacant"} to ${newPerson}`
+      : `${level} ${geographyRef} vacated (previously ${previousPerson ?? "vacant"})`),
+    ...extra,
+  });
+  // createEvent()'s OWN ...compact(fields) would silently strip
+  // previousPerson/newPerson whenever either is null — exactly the
+  // "explicitly null" state this event type must preserve (a vacate, or
+  // reassigning FROM an already-vacant slot). Set both directly on the
+  // returned object, the SAME "explicit null, never absent" technique
+  // createEvent() already uses for its own `correlationId` field (see
+  // that function's own comment in os/events.js).
+  event.previousPerson = previousPerson;
+  event.newPerson = newPerson;
+  return event;
+}
+
 // `status`/`trainingStatus` are BOTH optional here — unlike
 // assignmentStatusEvent's hard-required `status`, a status-change event may
 // report only a training-completion update with no status change, or vice
@@ -708,6 +776,6 @@ export default {
   personAddedEvent, assignmentCreatedEvent, assignmentStatusEvent, taskCreatedEvent, taskStatusEvent,
   pollingUnitAddedEvent, agentAssignedEvent, agentStatusEvent, resultCapturedEvent, resultOcrProcessedEvent, resultVerifiedEvent,
   incidentReportedEvent, incidentStatusEvent,
-  territorySetEvent, responsibilityAssignedEvent, responsibilityStatusEvent,
+  territorySetEvent, responsibilityAssignedEvent, responsibilityStatusEvent, responsibilityReassignedEvent,
   makeEventId, EVENT_SCHEMA_VERSION,
 };

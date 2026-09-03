@@ -75,17 +75,35 @@ function candidateClaim(candidate) {
   });
 }
 
-function wardAssignmentClaim(ward) {
-  const assigned = ward.organisation != null;
+// ELECTIONCANON 1.1 PHASE 1 — WARD_ASSIGNMENT now reads from
+// responsibility_slots (the real, geography-validated Organisation system
+// — see src/domains/election/geography/write.js/coverage.js), NOT the
+// legacy `ward.organisation` free-text field. That field was set by the
+// OLDER campaign.ward.assigned event type and was never connected to real
+// imported geography or to a real campaign member — a ward could show
+// COMPLETE purely because some string was once written there, with no
+// check that it named a real person or that any accountability record
+// backed it. `wardResponsibility` is a plain map, {[wardGeographyRef]:
+// currentPersonOrNull}, pre-fetched by the CALLER (coverage.js's
+// getWardResponsibilityMap()) — this function stays pure/synchronous,
+// exactly like deriveTerritoryReadiness({view, geographyTree}) already
+// takes geographyTree as an external argument rather than fetching it
+// itself. `ward.organisation` is deliberately left untouched elsewhere
+// (not deleted, not migrated) — see this repository's Design Gate 1 Part
+// 10 for why replacing the DATA SOURCE, not the field itself, was the
+// approved design.
+function wardAssignmentClaim(ward, wardResponsibility = {}) {
+  const currentPerson = wardResponsibility[ward.id] ?? null;
+  const assigned = currentPerson != null;
   return claim({
     dimension: "WARD_ASSIGNMENT",
     status: assigned ? READINESS_STATUS.COMPLETE : READINESS_STATUS.INCOMPLETE,
     value: assigned
-      ? `${ward.id} is assigned to ${ward.organisation}`
-      : `${ward.id} has no assigned organisation`,
-    threshold: "wards[id].organisation != null",
-    sourceEntity: `wards.${ward.id}`, sourceEvent: "campaign.ward.assigned",
-    calculation: "wards[id].organisation != null",
+      ? `${ward.id} has a current ward coordinator`
+      : `${ward.id} has no current ward coordinator`,
+    threshold: "responsibility_slots[level=ward, geography_ref=id].current_person != null",
+    sourceEntity: `responsibility_slots.ward.${ward.id}`, sourceEvent: "responsibility.assigned|responsibility.reassigned",
+    calculation: "wardResponsibility[id] != null",
     confidence: "CANON",
   });
 }
@@ -136,7 +154,7 @@ function gapFor(claimObj, ward = null) {
     resolves_when: isCandidate
       ? "a candidate.registered event exists"
       : claimObj.dimension === "WARD_ASSIGNMENT"
-        ? "organisation becomes non-null"
+        ? "a current WARD_COORDINATOR responsibility is recorded for this ward"
         : "status becomes one of the declared healthy values",
   });
 }
@@ -145,8 +163,19 @@ function gapFor(claimObj, ward = null) {
  * The single entry point. Pure function: `view` in, claims/gaps/overall out.
  * Never throws on an empty Canon — an empty `view` produces claims that are
  * honestly INCOMPLETE/UNKNOWN, never a crash and never a fabricated pass.
+ *
+ * ELECTIONCANON 1.1 PHASE 1 — `wardResponsibility` is a NEW, OPTIONAL second
+ * argument, defaulting to `{}` (so every EXISTING caller passing only
+ * `view` keeps working, unchanged, with WARD_ASSIGNMENT honestly reporting
+ * INCOMPLETE everywhere until a caller is updated to supply real data — the
+ * same "never fabricate" discipline as every other dimension here, never a
+ * crash from a missing argument). This keeps deriveReadiness() PURE and
+ * SYNCHRONOUS — it still does not import a client, still cannot reach
+ * anything that could mutate the Canon (see this module's own header) — the
+ * actual responsibility_slots read happens in coverage.js, at the call
+ * site, not here.
  */
-export function deriveReadiness(view = {}) {
+export function deriveReadiness(view = {}, wardResponsibility = {}) {
   const candidates = Object.values(view?.candidates ?? {});
   const wards = Object.values(view?.wards ?? {});
   const candidate = candidates[0] ?? null;
@@ -154,7 +183,7 @@ export function deriveReadiness(view = {}) {
   const candClaim = candidateClaim(candidate);
   const wardDimensions = wards.map((w) => ({
     ward: w,
-    assignment: wardAssignmentClaim(w),
+    assignment: wardAssignmentClaim(w, wardResponsibility),
     statusHealth: wardStatusClaim(w),
   }));
 

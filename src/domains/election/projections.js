@@ -243,6 +243,27 @@ export function projectElection(log = [], campaign = null) {
         trainingStatus: e.trainingStatus ?? prev.trainingStatus,
         history: [...prev.history, { status: e.status ?? null, trainingStatus: e.trainingStatus ?? null, note: e.note ?? null, at: e.at ?? null }] };
     }
+    // ELECTIONCANON 1.1 PHASE 1 — REASSIGNED. `person` is set to `e.newPerson`
+    // DIRECTLY, never `e.newPerson ?? prev.person` — a REASSIGNED event
+    // ALWAYS carries a definitive newPerson (possibly null, meaning
+    // "vacated"), unlike an optional field elsewhere that legitimately
+    // omits itself. Using `??` here would silently treat a genuine vacate
+    // (newPerson: null) as "no info given, keep the old person" — exactly
+    // the split-brain-adjacent bug this event type exists to avoid.
+    // level/geographyRef/responsibilityRole use `??` defensively (the
+    // factory always requires them, but a fold must never crash on a
+    // malformed event) — they never actually change across a slot's
+    // reassignment history. history[] gets its own entry shape, distinct
+    // from STATUS_CHANGED's, carrying the actual handoff (previousPerson ->
+    // newPerson), never merged into the same history entries.
+    if (e?.type === ELECTION_EVENT_TYPES.RESPONSIBILITY.REASSIGNED) {
+      const prev = responsibilities[e.responsibility] ?? { id: e.responsibility, ...RESPONSIBILITY_DEFAULT };
+      responsibilities[e.responsibility] = { ...prev, person: e.newPerson,
+        level: e.level ?? prev.level, geographyRef: e.geographyRef ?? prev.geographyRef,
+        responsibilityRole: e.responsibilityRole ?? prev.responsibilityRole,
+        history: [...prev.history, { event: "reassigned", previousPerson: e.previousPerson ?? null,
+          newPerson: e.newPerson ?? null, reason: e.reason ?? null, at: e.at ?? null }] };
+    }
 
     if (e?.type) {
       feed.push({ at: e.at, eventId: e.eventId, type: e.type,

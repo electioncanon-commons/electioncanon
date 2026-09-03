@@ -22,7 +22,7 @@
 // ============================================================
 
 import {
-  territorySetEvent, responsibilityAssignedEvent, responsibilityStatusEvent,
+  territorySetEvent, responsibilityStatusEvent,
   ELECTION_EVENT_TYPES,
 } from "../events.js";
 import { ASSIGNMENT_STATUS } from "../mobilization/write.js";
@@ -197,16 +197,119 @@ export async function proposeAssignResponsibility({ fields = {}, roster = [], ge
   };
 }
 
-export async function executeAssignResponsibility({ draft, campaign, userId, client, confirmationId } = {}) {
+// ELECTIONCANON 1.1 PHASE 1 — this is now a thin wrapper around
+// writeResponsibility() (the client.rpc('write_responsibility', ...) call
+// below), NOT a raw election_events insert. This is the split-brain fix
+// this project's own Design Gate 1A found: a first assignment written via
+// the OLD path (client.from('election_events').insert(...)) would create
+// an event with no corresponding responsibility_slots row — the exact
+// projection-consistency gap write_responsibility() (SECURITY DEFINER,
+// supabase/migrations/20260903000000_election_responsibility_reassignment.
+// sql) closes by writing both atomically, in one transaction, no matter
+// which of executeAssignResponsibility/executeReassignResponsibility calls
+// it. This function's PUBLIC SIGNATURE is unchanged — both existing
+// callers (electionWebAdapter.js's GEOGRAPHY_OPERATION.ASSIGN_RESPONSIBILITY
+// wiring, and invitations/write.js's acceptance sequence) need no changes
+// beyond invitations/write.js optionally supplying `viaInvitationId` (see
+// that file's own header for why).
+//
+// p_expected_current_person is always null here: a call into THIS function
+// is, by construction, a genuine first-assignment attempt (the caller
+// never has a "previous holder" belief to assert) — write_responsibility()
+// itself decides, server-side, whether that belief is actually correct
+// (no existing responsibility_slots row for this slot) or stale (a slot
+// that already has a holder, in which case it fails closed exactly as the
+// OLD unique-index-backed path always did, never silently reassigning).
+export async function executeAssignResponsibility({ draft, campaign, userId, client, confirmationId, viaInvitationId = null } = {}) {
   if (!draft || !campaign || !userId || !client || !confirmationId) {
     return { success: false, alreadyRecorded: false, error: "executeAssignResponsibility requires draft, campaign, userId, client, and confirmationId" };
   }
-  const event = responsibilityAssignedEvent({
-    responsibility: confirmationId, campaign, person: draft.person, level: draft.level,
-    geographyRef: draft.geographyRef, responsibilityRole: draft.responsibilityRole,
-    status: draft.status, eventId: confirmationId,
+  return writeResponsibility({
+    client, campaignId: campaign, level: draft.level, geographyRef: draft.geographyRef,
+    responsibilityRole: draft.responsibilityRole, newPerson: draft.person,
+    expectedCurrentPerson: null, eventId: confirmationId, viaInvitationId,
   });
-  return insertEvent({ client, campaign, userId, event, confirmationId });
+}
+
+/** @param fields { level, geographyRef, newPersonId, expectedCurrentPerson, reason }
+ *    newPersonId: the roster id of the new holder, or null/undefined to VACATE the slot.
+ *    expectedCurrentPerson: the current holder's person-id AS THE CALLER'S OWN
+ *      READ MODEL BELIEVES IT TO BE (e.g. from coverage.js's getWardCoverage() /
+ *      getUncoveredTerritory()) — never trusted as authoritative; write_responsibility()
+ *      independently re-reads the real current state server-side and fails closed
+ *      ("this slot has already changed — refresh") if this belief is stale. This is
+ *      the compare-and-swap PREPARE-time input, not a security control in itself.
+ *  @param roster  real rows from view.people (existing Mobilization roster) — the SAME
+ *    validation discipline proposeAssignResponsibility already applies.
+ *  @param geographyTree  same shape proposeAssignResponsibility validates against. */
+export async function proposeReassignResponsibility({ fields = {}, roster = [], geographyTree = null } = {}) {
+  const level = fields.level;
+  if (!Object.values(GEOGRAPHY_LEVEL).includes(level)) {
+    return { status: "NEEDS_LEVEL", draft: null, reason: `"${level}" is not a recognised geography level` };
+  }
+
+  const geographyRef = requireText(fields.geographyRef, "a geography unit");
+  if (!geographyRef.valid) return { status: "NEEDS_GEOGRAPHY_REF", draft: null, reason: geographyRef.reason };
+
+  if (level === GEOGRAPHY_LEVEL.WARD || level === GEOGRAPHY_LEVEL.POLLING_UNIT) {
+    const pool = level === GEOGRAPHY_LEVEL.WARD ? geographyTree?.wards : geographyTree?.pollingUnits;
+    if (!pool || pool.length === 0) {
+      return {
+        status: "NO_GEOGRAPHY_DATA_IMPORTED", draft: null,
+        reason: `Authoritative ${level === GEOGRAPHY_LEVEL.WARD ? "ward" : "polling-unit"} reference data has not yet been imported for this constituency.`,
+      };
+    }
+    if (!pool.some((row) => row.id === geographyRef.value)) {
+      return { status: "NEEDS_GEOGRAPHY_REF", draft: null, reason: `"${geographyRef.value}" is not a recognised ${level}` };
+    }
+  } else if (level === GEOGRAPHY_LEVEL.LGA) {
+    const pool = geographyTree?.lgas;
+    if (pool && pool.length > 0 && !pool.some((row) => row.id === geographyRef.value)) {
+      return { status: "NEEDS_GEOGRAPHY_REF", draft: null, reason: `"${geographyRef.value}" is not an LGA in this constituency` };
+    }
+  }
+
+  const newPersonId = fields.newPersonId ?? null; // null is a valid, deliberate vacate
+  let newPersonName = null;
+  if (newPersonId != null) {
+    const person = roster.find((p) => p.id === newPersonId);
+    if (!person) return { status: "NEEDS_PERSON", draft: null, reason: `"${newPersonId}" is not on this campaign's roster — add them under Mobilize first` };
+    newPersonName = person.name ?? newPersonId;
+  }
+
+  const expectedCurrentPerson = fields.expectedCurrentPerson ?? null;
+  if (newPersonId != null && newPersonId === expectedCurrentPerson) {
+    return { status: "NO_OP", draft: null, reason: "this person already holds this responsibility" };
+  }
+
+  const responsibilityRole = ROLE_FOR_LEVEL[level];
+  const reasonText = fields.reason != null ? String(fields.reason).trim().slice(0, MAX_FIELD_LENGTH) : "";
+
+  return {
+    status: "PREPARED",
+    draft: draftShape({
+      draft: {
+        type: ELECTION_EVENT_TYPES.RESPONSIBILITY.REASSIGNED,
+        level, geographyRef: geographyRef.value, responsibilityRole,
+        newPerson: newPersonId, expectedCurrentPerson, reason: reasonText || null,
+      },
+      label: "reassign responsibility", component: newPersonName ?? "vacated",
+      summary: newPersonId
+        ? `reassigning ${responsibilityRole.replace(/_/g, " ").toLowerCase()} to ${newPersonName}`
+        : `vacating the ${responsibilityRole.replace(/_/g, " ").toLowerCase()} slot`,
+    }),
+  };
+}
+
+export async function executeReassignResponsibility({ draft, campaign, userId, client, confirmationId } = {}) {
+  if (!draft || !campaign || !userId || !client || !confirmationId) {
+    return { success: false, alreadyRecorded: false, error: "executeReassignResponsibility requires draft, campaign, userId, client, and confirmationId" };
+  }
+  return writeResponsibility({
+    client, campaignId: campaign, level: draft.level, geographyRef: draft.geographyRef,
+    responsibilityRole: draft.responsibilityRole, newPerson: draft.newPerson,
+    expectedCurrentPerson: draft.expectedCurrentPerson, eventId: confirmationId, reason: draft.reason ?? null,
+  });
 }
 
 /** @param fields { responsibilityId, status, trainingStatus, note } — at
@@ -284,9 +387,46 @@ async function insertEvent({ client, campaign, userId, event, confirmationId }) 
   return { success: true, alreadyRecorded: false, error: null, eventId: confirmationId, event };
 }
 
+// ELECTIONCANON 1.1 PHASE 1 — THE ONE RESPONSIBILITY WRITE PATH. Neither
+// executeAssignResponsibility nor executeReassignResponsibility inserts
+// into election_events directly any more — both call this, which calls
+// public.write_responsibility() (SECURITY DEFINER, one atomic transaction
+// writing BOTH election_events and responsibility_slots — see that
+// function's own migration header for the full authorization/idempotency/
+// compare-and-swap specification this mirrors exactly). This is a
+// DELIBERATE architectural departure from insertEvent() above: unlike a
+// plain event insert (safe because RLS alone is a sufficient authorization
+// check for every OTHER event type this codebase writes), a responsibility
+// write needs a genuinely relational authorization decision (does the
+// caller hold delegation authority for THIS slot) and an atomic
+// check-current-then-write guarantee a bare client insert cannot provide
+// without a race window — the exact same reasoning
+// create_campaign_invitation() already established for invitations.
+async function writeResponsibility({ client, campaignId, level, geographyRef, responsibilityRole,
+  newPerson, expectedCurrentPerson, eventId, reason = null, viaInvitationId = null }) {
+  const { data, error } = await client.rpc("write_responsibility", {
+    p_campaign_id: campaignId, p_level: level, p_geography_ref: geographyRef,
+    p_responsibility_role: responsibilityRole, p_new_person: newPerson,
+    p_expected_current_person: expectedCurrentPerson, p_event_id: eventId,
+    p_reason: reason, p_via_invitation_id: viaInvitationId,
+  });
+  if (error) {
+    const message = error.message ?? "";
+    if (/already changed/.test(message)) {
+      return { success: false, alreadyRecorded: false, error: "this geography slot already has a responsibility recorded — refresh to see who" };
+    }
+    return { success: false, alreadyRecorded: false, error: message };
+  }
+  return {
+    success: true, alreadyRecorded: Boolean(data?.alreadyRecorded), error: null,
+    eventId, event: data?.payload ?? null, slot: data ?? null,
+  };
+}
+
 export default {
   proposeSetTerritory, executeSetTerritory,
   proposeAssignResponsibility, executeAssignResponsibility,
+  proposeReassignResponsibility, executeReassignResponsibility,
   proposeChangeResponsibilityStatus, executeChangeResponsibilityStatus,
   GEOGRAPHY_LEVEL, RESPONSIBILITY_ROLE, TRAINING_STATUS, MAX_FIELD_LENGTH,
 };

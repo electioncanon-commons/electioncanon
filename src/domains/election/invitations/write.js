@@ -92,7 +92,7 @@ export async function acceptInvitation({ client, token, displayName }) {
   const result = Array.isArray(rpcData) ? rpcData[0] : rpcData;
   if (!result) return { accepted: false, campaignId: null, error: "invitation could not be resolved" };
 
-  const { campaign_id: campaignId, intended_responsibility_role: responsibilityRole,
+  const { id: invitationId, campaign_id: campaignId, intended_responsibility_role: responsibilityRole,
     intended_level: level, intended_geography_ref: geographyRef, invited_name: invitedName } = result;
 
   if (!responsibilityRole) {
@@ -151,9 +151,20 @@ export async function acceptInvitation({ client, token, displayName }) {
   if (respPrepared.status !== "PREPARED") {
     return { accepted: true, campaignId, error: `membership and roster entry created, but the responsibility could not be assigned: ${respPrepared.reason}` };
   }
+  // ELECTIONCANON 1.1 PHASE 1 — viaInvitationId lets write_responsibility()
+  // (called inside executeAssignResponsibility) trust this write via the
+  // ALREADY-authorized invitation (create_campaign_invitation() checked
+  // the INVITER's delegation authority once, at invitation-creation time)
+  // instead of re-running the delegation matrix against the ACCEPTER —
+  // who, by definition, never yet holds the responsibility being granted
+  // to them and would always fail that check. write_responsibility() itself
+  // derives newPerson from auth.uid() on this path, never from
+  // respPrepared's own draft.person — see that function's own header for
+  // why p_new_person is deliberately ignored when p_via_invitation_id is set.
   const respResult = await executeAssignResponsibility({
     draft: respPrepared.draft.draft, campaign: campaignId, userId, client,
     confirmationId: `invite-resp:${campaignId}:${userId}`,
+    viaInvitationId: invitationId,
   });
   if (!respResult.success) {
     return { accepted: true, campaignId, error: `membership and roster entry created, but the responsibility assignment failed: ${respResult.error}` };

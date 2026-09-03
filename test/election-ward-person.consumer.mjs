@@ -122,8 +122,17 @@ const stamp = (e, i, prefix) => Object.freeze({ ...e, eventId: `${prefix}-${i}`,
   const logWithPerson = [stamp(wardAssignedEvent({ ward: "Ward P20", campaign: CAMPAIGN_A, organisation: "Team P20", person: "Emeka" }), 1, "u3a")].reverse();
   const logNoPerson = [stamp(wardAssignedEvent({ ward: "Ward P20", campaign: CAMPAIGN_A, organisation: "Team P20" }), 1, "u3b")].reverse();
 
-  const rWith = deriveReadiness(projectElection(logWithPerson, CAMPAIGN_A));
-  const rWithout = deriveReadiness(projectElection(logNoPerson, CAMPAIGN_A));
+  // ELECTIONCANON 1.1 PHASE 1 — WARD_ASSIGNMENT now sources from
+  // responsibility_slots (deriveReadiness()'s new, optional second
+  // argument), never `ward.organisation` — see studio/readiness.js's own
+  // header. This test's actual subject is whether the UNRELATED `person`
+  // field affects WARD_ASSIGNMENT (it must not) — supplying the SAME
+  // wardResponsibility for both fixtures preserves that original intent
+  // without conflating it with the (separately, dedicatedly tested —
+  // see election-readiness.consumer.mjs's PART B2) data-source change.
+  const wardResponsibility = { "Ward P20": "invite:camp-a:some-coordinator-uid" };
+  const rWith = deriveReadiness(projectElection(logWithPerson, CAMPAIGN_A), wardResponsibility);
+  const rWithout = deriveReadiness(projectElection(logNoPerson, CAMPAIGN_A), wardResponsibility);
   const claimWith = rWith.claims.find((c) => c.dimension === "WARD_ASSIGNMENT");
   const claimWithout = rWithout.claims.find((c) => c.dimension === "WARD_ASSIGNMENT");
 

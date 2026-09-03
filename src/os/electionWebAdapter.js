@@ -258,12 +258,18 @@ const ELECTION_DAY_HANDLERS = Object.freeze({
 export const GEOGRAPHY_OPERATION = Object.freeze({
   SET_TERRITORY: "set_territory",
   ASSIGN_RESPONSIBILITY: "assign_responsibility",
+  // ELECTIONCANON 1.1 PHASE 1 — same generic PREPARE -> APPROVE -> EXECUTE
+  // shape as every other geography operation; write_responsibility()
+  // (called by executeReassignResponsibility) is what makes this safe
+  // under concurrency/authorization, not this adapter layer.
+  REASSIGN_RESPONSIBILITY: "reassign_responsibility",
   CHANGE_RESPONSIBILITY_STATUS: "change_responsibility_status",
 });
 
 const GEOGRAPHY_HANDLERS = Object.freeze({
   [GEOGRAPHY_OPERATION.SET_TERRITORY]: { propose: geographyWrite.proposeSetTerritory, execute: geographyWrite.executeSetTerritory },
   [GEOGRAPHY_OPERATION.ASSIGN_RESPONSIBILITY]: { propose: geographyWrite.proposeAssignResponsibility, execute: geographyWrite.executeAssignResponsibility },
+  [GEOGRAPHY_OPERATION.REASSIGN_RESPONSIBILITY]: { propose: geographyWrite.proposeReassignResponsibility, execute: geographyWrite.executeReassignResponsibility },
   [GEOGRAPHY_OPERATION.CHANGE_RESPONSIBILITY_STATUS]: { propose: geographyWrite.proposeChangeResponsibilityStatus, execute: geographyWrite.executeChangeResponsibilityStatus },
 });
 

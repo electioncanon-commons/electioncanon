@@ -91,6 +91,11 @@ function fakeClient(store, asUser) {
           },
         };
       }
+      if (table === "responsibility_slots") {
+        // ELECTIONCANON 1.1 PHASE 1 (BLOCKER FIX PASS F2) — see
+        // election-activation.consumer.mjs's identical comment.
+        return { select: () => ({ eq: () => ({ eq: () => ({ in: async () => ({ data: [], error: null }) }) }) }) };
+      }
       throw new Error(`fakeClient: unexpected table "${table}"`);
     },
     async rpc(name, args) {

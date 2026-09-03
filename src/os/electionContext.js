@@ -12,13 +12,19 @@
 // (electionBootstrap.js) and `resolveElectionScope()` (electionScope.js)
 // are UNCHANGED by this loop — this module calls them, in the order Loop
 // 25's own brief specifies, and adds no third way to create a campaign or
-// resolve scope. `projectElection()`/`deriveReadiness()` are equally
-// unchanged; this module's only new contribution is the ONE missing wire:
-// pulling a campaign's real persisted rows out of `election_events` so
-// those two pure functions have something live to fold, mirroring the
-// exact `fetchLog()`/`.map((r) => r.payload)` pattern
-// `ForgeBusinessAssistantRoom.jsx` already uses for Business — extracted
-// here so Election never needs a room to read its own Canon.
+// resolve scope. `projectElection()`/`deriveReadiness()`/
+// `deriveObserverReadiness()` are equally unchanged as FUNCTIONS — this
+// module's own contribution is wiring: pulling a campaign's real
+// persisted rows out of `election_events` so those pure functions have
+// something live to fold, mirroring the exact `fetchLog()`/
+// `.map((r) => r.payload)` pattern `ForgeBusinessAssistantRoom.jsx`
+// already uses for Business — extracted here so Election never needs a
+// room to read its own Canon. ELECTIONCANON 1.1 PHASE 1 (BLOCKER FIX PASS
+// F2) added a SECOND such wire, scoped to CANDIDATE_CAMPAIGN only: real
+// responsibility_slots data (via coverage.js's existing
+// getWardResponsibilityMap(), never a second query), so deriveReadiness()'s
+// WARD_ASSIGNMENT dimension reflects the real Organisation system instead
+// of defaulting to empty — see this function's own body below.
 //
 // WHY BOOTSTRAP'S OWN RETURN VALUE IS NEVER TRUSTED. Loop 24's CBOOT-8
 // already proved `bootstrapCampaign()`'s success does not itself grant
@@ -35,6 +41,11 @@ import { resolveElectionScope, isElectionScoped } from "./electionScope.js";
 import { projectElection } from "../domains/election/projections.js";
 import { deriveReadiness } from "../domains/election/studio/readiness.js";
 import { deriveObserverReadiness } from "../domains/election/studio/observerReadiness.js";
+// ELECTIONCANON 1.1 PHASE 1 (BLOCKER FIX PASS F2) — the ONE additional
+// live read this loop adds: getWardResponsibilityMap() already exists in
+// coverage.js (Phase 1's own coverage read model) — reused verbatim here,
+// never a second responsibility query, never duplicated logic.
+import { getWardResponsibilityMap } from "../domains/election/geography/coverage.js";
 
 export { ACTOR_KIND };
 
@@ -153,7 +164,8 @@ export async function getCampaignActorKind({ client, campaignId }) {
  *
  *   authenticate -> resolveElectionScope -> read actor_kind
  *     -> (CANDIDATE_CAMPAIGN only) loadElectionLog
- *       -> projectElection -> deriveReadiness
+ *       -> projectElection -> (CANDIDATE_CAMPAIGN only) getWardResponsibilityMap
+ *         -> deriveReadiness
  *
  * WHAT THIS FUNCTION REFUSES TO ACCEPT, BY CONSTRUCTION — not by a runtime
  * check, because the parameter simply does not exist: a caller-supplied
@@ -207,7 +219,28 @@ export async function getElectionContext({ userId, client, requestedCampaign = n
   // Canon this returns is exactly what `election_events` holds AT THIS
   // MOMENT for this campaign, nothing carried over from a previous call.
   const view = projectElection(events, scope.campaignId);
-  const readiness = deriveFor(view);
+
+  // ELECTIONCANON 1.1 PHASE 1 (BLOCKER FIX PASS F2) — WARD_ASSIGNMENT now
+  // reads from responsibility_slots, not the legacy `ward.organisation`
+  // field (see readiness.js's own header) — this is the one place that
+  // real data enters the live app. Scoped to CANDIDATE_CAMPAIGN only:
+  // deriveObserverReadiness() takes no such argument and has no
+  // WARD_ASSIGNMENT-equivalent dimension to feed — completely unaffected,
+  // called exactly as before. A failure fetching responsibility data
+  // degrades to an EMPTY map (WARD_ASSIGNMENT honestly reads INCOMPLETE),
+  // never a crash and never a fabricated COMPLETE — the same "never
+  // fabricate" discipline readiness.js itself already follows; it does
+  // NOT fail the whole context read, since CANDIDATE_REGISTERED/
+  // WARD_STATUS_HEALTH must remain available even if this one extra read
+  // has a problem.
+  let readiness;
+  if (actorKind === ACTOR_KIND.CANDIDATE_CAMPAIGN) {
+    const wardIds = Object.keys(view.wards);
+    const { data: wardResponsibility } = await getWardResponsibilityMap({ client, campaignId: scope.campaignId, wardIds });
+    readiness = deriveReadiness(view, wardResponsibility ?? {});
+  } else {
+    readiness = deriveFor(view);
+  }
   return Object.freeze({ scope, view, readiness, actorKind, error: null });
 }
 
