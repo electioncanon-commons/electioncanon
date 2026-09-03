@@ -41,6 +41,31 @@
 //   node supabase/geography-import/acquire-national-snapshot.mjs
 // Resume after an interruption: just run it again — checkpoint.json is
 // read on startup and completed states are skipped.
+//
+// FORCE_REFRESH=true — EXPLICIT, OPT-IN, NEVER THE DEFAULT (national
+// import repair, follow-up pass). Checkpointing is a feature for surviving
+// an INTERRUPTION mid-crawl — it is not, and must never silently become, a
+// cache that hides source-side or PARSER-side changes. When
+// parseCascadeResponse() itself changes (as it did in this repair — see
+// inec-source.mjs's own header), a plain re-run against an existing
+// checkpoint.json that already lists all 37 states complete does
+// ABSOLUTELY NOTHING: every state is skipped, and the snapshot is
+// rewritten with a fresh `acquiredAt` timestamp but the SAME STALE,
+// pre-fix parsed data — a silent no-op that looks like a real
+// reacquisition. FORCE_REFRESH=true is the explicit escape hatch: it
+// makes this run start from a completely EMPTY in-memory checkpoint
+// (ignoring whatever is on disk), so every one of the 37 states is
+// genuinely re-fetched from INEC and re-parsed with whatever
+// parseCascadeResponse() currently is. Everything else about the run is
+// UNCHANGED — same retry/timeout/bounded-concurrency/polite-pacing
+// protections, same deterministic per-state order, same incremental
+// checkpoint.json writes after each state (so a FORCE_REFRESH run can
+// itself still be safely interrupted and resumed — resuming afterward,
+// with or without FORCE_REFRESH, only ever finds FRESH completed-state
+// entries, never a stale one silently mixed in). Zero Supabase/database
+// calls, exactly like every other mode of this script.
+//
+//   FORCE_REFRESH=true node supabase/geography-import/acquire-national-snapshot.mjs
 // ============================================================
 
 import { writeFileSync, readFileSync, existsSync, mkdirSync, appendFileSync } from "node:fs";
@@ -62,6 +87,10 @@ const REQUEST_TIMEOUT_MS = 10000;
 const MAX_RETRIES = 5;
 const BASE_BACKOFF_MS = 500;
 const REQUEST_STAGGER_MS = 60;
+
+// Explicit, opt-in, never-default — see this file's own header for why
+// this exists and exactly what it does/doesn't change.
+const FORCE_REFRESH = process.env.FORCE_REFRESH === "true";
 
 if (!existsSync(SNAP_DIR)) mkdirSync(SNAP_DIR, { recursive: true });
 
@@ -113,10 +142,25 @@ async function acquireState(stateEntry) {
   return { stateId: stateEntry.stateId, code: stateEntry.code, label: stateEntry.label, lgas, stats };
 }
 
+/** Exported for direct testing (see
+ *  test/election-geography-acquisition-hardening.consumer.mjs's own
+ *  FORCE_REFRESH section) — pure, no I/O: given the flag and whatever
+ *  loadCheckpoint() would return, decides which starting checkpoint this
+ *  run actually uses. Default (false): trust and resume from what's on
+ *  disk. FORCE_REFRESH (true): start empty, regardless of what's on disk
+ *  — every state will look "not yet complete" to isStateComplete(), so
+ *  the main loop below re-fetches and re-parses every one of them. */
+export function resolveStartingCheckpoint(forceRefresh, loadedCheckpoint) {
+  return forceRefresh ? { completedStateCodes: [], states: {} } : loadedCheckpoint;
+}
+
 async function main() {
-  const checkpoint = loadCheckpoint(CHECKPOINT_PATH);
+  const checkpoint = resolveStartingCheckpoint(FORCE_REFRESH, loadCheckpoint(CHECKPOINT_PATH));
   const startedAt = new Date().toISOString();
   console.log(`\nNational geography acquisition starting at ${startedAt}`);
+  if (FORCE_REFRESH) {
+    console.log(`FORCE_REFRESH=true — ignoring any existing checkpoint on disk. Every one of the ${INEC_STATE_IDS.length} states will be re-fetched from INEC and re-parsed with the CURRENT parseCascadeResponse().`);
+  }
   console.log(`Already completed (from checkpoint): ${checkpoint.completedStateCodes.length}/${INEC_STATE_IDS.length} states\n`);
 
   for (const stateEntry of INEC_STATE_IDS) {
