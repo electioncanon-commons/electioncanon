@@ -139,6 +139,16 @@ export function ForgeIdentityProvider({ children }) {
   }, [userId]);
 
   // ---- actions ----
+  // ELECTIONCANON 1.1.1 PHASE A — `data` (previously discarded entirely)
+  // is now inspected for exactly one honest fact: whether signUp() itself
+  // actually created a session. Supabase only omits `data.session` when
+  // email confirmation is genuinely required; when confirmation is OFF
+  // for this project, signUp() returns an active session immediately and
+  // no confirmation email is sent at all. `needsEmailConfirmation` lets a
+  // caller (Access.jsx) show a "check your email" state ONLY when that is
+  // what actually happened, never a fabricated claim — this is the one
+  // caller of register() in this codebase (verified), so this additive
+  // field changes nothing for anyone else.
   const register = useCallback(async ({ email, password, role, displayName, state, discipline }) => {
     if (!isConfigured) return { error: "Supabase is not configured in this environment." };
     const meta = {
@@ -148,10 +158,10 @@ export function ForgeIdentityProvider({ children }) {
       state: state ?? "",
       discipline: discipline ?? "",
     };
-    const { error: e } = await supabase.auth.signUp({
+    const { data, error: e } = await supabase.auth.signUp({
       email, password, options: { data: meta },
     });
-    return { error: e?.message ?? null };
+    return { error: e?.message ?? null, needsEmailConfirmation: !e && !data?.session };
   }, []);
 
   // ORGANISATION ONBOARDING.

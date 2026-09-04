@@ -317,7 +317,13 @@ function InviteWizard({ campaignId, refresh, territory, offices, myRole, myRespo
             Person: <strong>{name}</strong> ({email})<br />
             Role: <strong>{roleLabel}</strong><br />
             {role !== "DIRECTOR" && <>Territory: <strong>{[lgaName, wardName].filter(Boolean).join(" → ")}</strong><br /></>}
-            Campaign: <strong>{tree?.constituency?.name ?? "—"}</strong>
+            {/* ELECTIONCANON 1.1.1 PHASE A — this was mislabeled "Campaign:"
+                while showing tree?.constituency?.name, never campaigns.name;
+                a constituency and a campaign are different real facts (see
+                electionBootstrap.js's own campaigns.name vs this component's
+                own territory-tree resolution) — fixed to the correct label,
+                the value itself was always correct. */}
+            Constituency: <strong>{tree?.constituency?.name ?? "—"}</strong>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <BackButton onClick={() => setStep(role === "DIRECTOR" ? 2 : 3)} />

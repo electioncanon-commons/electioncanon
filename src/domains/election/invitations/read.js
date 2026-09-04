@@ -20,6 +20,11 @@ export async function listInvitations({ client, campaignId }) {
 
 /** Unauthenticated-safe preview for the accept-invite landing page — see
  *  get_invitation_preview() in the migration; never exposes the token or email.
+ *  ELECTIONCANON 1.1.1 PHASE A — the row now also carries `invited_by_name`
+ *  (the inviter's real display name, or null), added purely on the SQL
+ *  side (20260904000000_election_invitation_preview_inviter_context.sql);
+ *  this function's own code is unchanged, since it already returns
+ *  whatever columns the RPC responds with.
  *  Wrapped in try/catch: a signed-out visitor's very first network call on
  *  this page must fail into a visible state, never an unhandled rejection
  *  that leaves AcceptInvite.jsx stuck on "Loading invitation…" forever. */

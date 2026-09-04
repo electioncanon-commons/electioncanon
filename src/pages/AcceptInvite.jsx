@@ -7,6 +7,19 @@
 // exposes the token or email — see the migration's own header). Writes via
 // accept_campaign_invitation(), the same privileged path every other
 // campaign-membership write in this project already uses.
+//
+// ELECTIONCANON 1.1.1 PHASE A — CAMPAIGN-FIRST HIERARCHY. The campaign
+// name is now the dominant visual identity on this page (design-audit
+// finding: campaigns.name was ALWAYS the right field and was ALWAYS wired
+// in correctly here — the real gap was the auth handoff losing this
+// context, not this page itself; see Access.jsx's own header). Responsibility
+// and area are now their own explicitly-labeled sections (previously one
+// combined line), and "Invited by" renders only when the inviter's real
+// profiles.display_name exists (get_invitation_preview()'s new,
+// null-by-default invited_by_name column) — never a raw id, never an
+// email. This page still shows NO email of any kind, unauthenticated or
+// otherwise — see the migration's own header on why that posture is
+// preserved.
 // ============================================================
 
 import { useState, useEffect } from "react";
@@ -81,16 +94,33 @@ export default function AcceptInvite() {
         ) : invitation === null ? (
           <div style={{ fontFamily: UI, fontSize: 14, color: PINK }}>This invitation link is not valid.</div>
         ) : (
-          <div style={{ background: "#111418", border: `1px solid ${BORDER}`, borderTop: `2px solid ${TEAL}`, padding: "28px 26px" }}>
-            <h1 style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: 26, color: IVORY, margin: "0 0 18px" }}>
-              You have been invited to join
+          <div style={{ background: "#111418", border: `1px solid ${BORDER}`, borderTop: `2px solid ${TEAL}`, padding: "clamp(22px,5vw,32px) clamp(18px,5vw,28px)" }}>
+            <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", color: PINK, marginBottom: 10 }}>
+              You've been invited
+            </div>
+            <h1 style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: "clamp(24px,6vw,34px)", lineHeight: 1.08, color: IVORY, margin: "0 0 10px", overflowWrap: "anywhere" }}>
+              {invitation.campaign_name}
             </h1>
-            <div style={{ fontFamily: UI, fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: MUTED, marginBottom: 4 }}>Campaign</div>
-            <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 16, color: IVORY, marginBottom: 16 }}>{invitation.campaign_name}</div>
+            <div style={{ fontFamily: UI, fontSize: 14, color: "rgba(245,241,233,0.72)", lineHeight: 1.5, marginBottom: 22 }}>
+              has invited you to join its campaign workspace on ElectionCanon.
+            </div>
 
-            <div style={{ fontFamily: UI, fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: MUTED, marginBottom: 4 }}>Your responsibility</div>
-            <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 16, color: IVORY, marginBottom: 16 }}>
-              {roleLabel}{invitation.geography_name ? ` — ${invitation.geography_name}` : ""}
+            {invitation.invited_by_name && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontFamily: UI, fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: MUTED, marginBottom: 4 }}>Invited by</div>
+                <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 15, color: IVORY }}>{invitation.invited_by_name}</div>
+              </div>
+            )}
+
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "16px 32px", marginBottom: 20 }}>
+              <div>
+                <div style={{ fontFamily: UI, fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: MUTED, marginBottom: 4 }}>Your responsibility</div>
+                <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 16, color: IVORY }}>{roleLabel}</div>
+              </div>
+              <div>
+                <div style={{ fontFamily: UI, fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", color: MUTED, marginBottom: 4 }}>Your area</div>
+                <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 16, color: IVORY }}>{invitation.geography_name ?? "Campaign-wide"}</div>
+              </div>
             </div>
 
             {invitation.status !== "pending" ? (
