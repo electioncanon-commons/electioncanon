@@ -8,12 +8,26 @@
 // derived from the SAME folded Canon view every other section reads — no
 // new tables, no fabricated scores. `tone` is an abstract "danger" |
 // "warning" key, not a color — callers map it to their own token.
+//
+// ELECTIONCANON 1.1 HOME OPERATING CONSOLE — `coverageGaps`/
+// `pendingInvitations` are NEW, OPTIONAL trailing arguments. Intelligence's
+// existing call site (computeAttention(view, gaps)) is completely
+// unaffected: `coverageGaps` defaults to `null`, which keeps the ORIGINAL
+// `ward.organisation` check verbatim. Home is the only caller that ever
+// supplies `coverageGaps` (real, geography-scoped LGA/ward coverage from
+// coverage.js), and when it does, that REPLACES the legacy-field check
+// rather than adding to it — both represent the same underlying fact ("this
+// territory has no one responsible for it"), just against two different
+// ward populations (Mobilize's free-text ward log vs. the campaign's real
+// resolved geography). Reporting both would double-count one real gap as
+// two alerts, which is exactly the "fabricated" duplication this module's
+// own header exists to prevent.
 // ============================================================
 
 import { TASK_STATUS, ASSIGNMENT_STATUS } from "../../domains/election/mobilization/write.js";
 import { INCIDENT_STATUS, INCIDENT_SEVERITY, VERIFICATION_STATUS, OCR_STATUS } from "../../domains/election/electionDay/write.js";
 
-export function computeAttention(view = {}, gaps = []) {
+export function computeAttention(view = {}, gaps = [], coverageGaps = null, pendingInvitations = []) {
   const wards = Object.values(view.wards ?? {});
   const assignments = Object.values(view.assignments ?? {});
   const tasks = Object.values(view.tasks ?? {});
@@ -25,8 +39,21 @@ export function computeAttention(view = {}, gaps = []) {
   const alerts = [];
   const now = Date.now();
 
-  for (const w of wards) {
-    if (!w.organisation) alerts.push({ text: `${w.id} has no coordinator or team assigned.`, tone: "danger" });
+  // Priority order (Home Operating Console spec): uncovered LGA/ward
+  // responsibility, then pending invitations, then everything else this
+  // module already tracked.
+  if (coverageGaps) {
+    for (const g of coverageGaps) {
+      const roleLabel = g.level === "lga" ? "LGA Coordinator" : "Ward Coordinator";
+      alerts.push({ text: `${g.name} (${g.level === "lga" ? "LGA" : "Ward"}) has no ${roleLabel} assigned.`, tone: "danger" });
+    }
+  } else {
+    for (const w of wards) {
+      if (!w.organisation) alerts.push({ text: `${w.id} has no coordinator or team assigned.`, tone: "danger" });
+    }
+  }
+  for (const inv of pendingInvitations ?? []) {
+    alerts.push({ text: `Invitation to ${inv.name} for ${inv.roleLabel} is still pending.`, tone: "warning" });
   }
   for (const a of assignments) {
     if (a.status === ASSIGNMENT_STATUS.BLOCKED) alerts.push({ text: `Assignment for ${a.assignee} in ${a.ward} is blocked.`, tone: "danger" });
@@ -66,7 +93,11 @@ export function computeAttention(view = {}, gaps = []) {
     alerts.push({ text: g.what, tone: "warning" });
   }
 
-  const wardsWithoutCoordinator = wards.filter((w) => !w.organisation);
+  // When coverageGaps was supplied, this returns the real geography-scoped
+  // gap objects ({level, name, id}) instead of legacy ward-log entries —
+  // callers that pass coverageGaps already know this shape, since they are
+  // the ones who built it.
+  const wardsWithoutCoordinator = coverageGaps ? coverageGaps.filter((g) => g.level === "ward") : wards.filter((w) => !w.organisation);
   const criticalIncidents = incidents.filter((i) =>
     (i.status !== INCIDENT_STATUS.RESOLVED && i.status !== INCIDENT_STATUS.CLOSED) &&
     (i.severity === INCIDENT_SEVERITY.CRITICAL || i.severity === INCIDENT_SEVERITY.HIGH));

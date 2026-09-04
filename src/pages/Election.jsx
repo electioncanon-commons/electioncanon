@@ -593,6 +593,19 @@ export default function Election() {
   const [activateBusy, setActivateBusy] = useState(false);
   const [activateError, setActivateError] = useState(null);
   const [section, setSection] = useState("home");
+  // ELECTIONCANON 1.1 HOME OPERATING CONSOLE — the only deep-link mechanism
+  // this app has, since section-switching is local state, not a route (see
+  // this file's own header). Home's "Invite Responsible Person" action
+  // calls goToSection("organisation", {level, geographyRef, role}); nothing
+  // else ever sets a second argument, so `inviteHint` stays null for every
+  // ordinary tab switch. OrganisationSection consumes and clears it once
+  // its InviteWizard mounts pre-filled, so returning to Organisation later
+  // (via the tab bar, not another Home action) starts blank as normal.
+  const [inviteHint, setInviteHint] = useState(null);
+  const goToSection = useCallback((id, hint = null) => {
+    setSection(id);
+    setInviteHint(hint);
+  }, []);
   const [workspaceName, setWorkspaceName] = useState(null);
   // PRE-LAUNCH UX CLEANUP PASS (P3) — the election type embedded in
   // campaigns.name's "[ElectionType] " prefix (see parseCampaignTitle()'s
@@ -719,7 +732,7 @@ export default function Election() {
 
   return shell(
     <>
-      <ForgeHeader section={section} onSection={setSection} campaignName={workspaceName}
+      <ForgeHeader section={section} onSection={goToSection} campaignName={workspaceName}
         onSignOut={signOut ? () => signOut() : null} showNav={!isFirstRun} />
 
       {isFirstRun && (
@@ -760,9 +773,9 @@ export default function Election() {
               </button>
             </Panel>
           )}
-          {section === "home" && <HomeSection ctx={ctx} onSection={setSection} workspaceName={workspaceName} electionType={workspaceElectionType} />}
-          {section === "territory" && <TerritorySection ctx={ctx} campaignId={campaignId} refresh={refresh} onSection={setSection} />}
-          {section === "organisation" && <OrganisationSection ctx={ctx} campaignId={campaignId} refresh={refresh} />}
+          {section === "home" && <HomeSection ctx={ctx} onSection={goToSection} campaignId={campaignId} refresh={refresh} workspaceName={workspaceName} electionType={workspaceElectionType} />}
+          {section === "territory" && <TerritorySection ctx={ctx} campaignId={campaignId} refresh={refresh} onSection={goToSection} />}
+          {section === "organisation" && <OrganisationSection ctx={ctx} campaignId={campaignId} refresh={refresh} inviteHint={inviteHint} onInviteHintConsumed={() => setInviteHint(null)} />}
           {section === "readiness" && <ReadinessSection ctx={ctx} campaignId={campaignId} refresh={refresh} />}
           {section === "mobilize" && <MobilizeSection ctx={ctx} campaignId={campaignId} refresh={refresh} />}
           {section === "chat" && <ChatSection campaignId={campaignId} userId={userId} />}

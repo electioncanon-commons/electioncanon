@@ -44,7 +44,16 @@ export async function getConstituencyCoverage({ client, campaignId, constituency
 }
 
 /** LGA coverage for every LGA the caller supplies (the campaign's own
- *  already-resolved constituency's LGAs — see getConstituencyTerritory()). */
+ *  already-resolved constituency's LGAs — see getConstituencyTerritory()).
+ *
+ *  ELECTIONCANON 1.1 HOME OPERATING CONSOLE — `currentPerson` added
+ *  alongside `covered`. The row already carried `current_person`; earlier
+ *  callers only ever needed the boolean, so it was discarded. A "Change
+ *  Responsibility" action needs the actual holder to show/confirm who is
+ *  being replaced and to pass as write_responsibility()'s own
+ *  compare-and-swap guard — exposing a field the same query already reads
+ *  is not a second computation, and every existing `{id, name, covered}`
+ *  consumer is unaffected by the addition. */
 export async function getLgaCoverage({ client, campaignId, lgas = [] } = {}) {
   if (lgas.length === 0) return { data: [], error: null };
   const { data, error } = await client
@@ -53,10 +62,14 @@ export async function getLgaCoverage({ client, campaignId, lgas = [] } = {}) {
     .eq("campaign_id", campaignId).eq("level", "lga").in("geography_ref", lgas.map((l) => l.id));
   if (error) return { data: null, error };
   const byRef = new Map((data ?? []).map((r) => [r.geography_ref, r.current_person]));
-  return { data: lgas.map((l) => ({ id: l.id, name: l.name, covered: Boolean(byRef.get(l.id)) })), error: null };
+  return {
+    data: lgas.map((l) => ({ id: l.id, name: l.name, currentPerson: byRef.get(l.id) ?? null, covered: Boolean(byRef.get(l.id)) })),
+    error: null,
+  };
 }
 
-/** Ward coverage for every ward the caller supplies. */
+/** Ward coverage for every ward the caller supplies. See getLgaCoverage()'s
+ *  own header for why `currentPerson` is now exposed alongside `covered`. */
 export async function getWardCoverage({ client, campaignId, wards = [] } = {}) {
   if (wards.length === 0) return { data: [], error: null };
   const { data, error } = await client
@@ -66,7 +79,8 @@ export async function getWardCoverage({ client, campaignId, wards = [] } = {}) {
   if (error) return { data: null, error };
   const byRef = new Map((data ?? []).map((r) => [r.geography_ref, r.current_person]));
   return {
-    data: wards.map((w) => ({ id: w.id, name: w.name, lgaId: w.lgaId ?? w.lga_id ?? null, covered: Boolean(byRef.get(w.id)) })),
+    data: wards.map((w) => ({ id: w.id, name: w.name, lgaId: w.lgaId ?? w.lga_id ?? null,
+      currentPerson: byRef.get(w.id) ?? null, covered: Boolean(byRef.get(w.id)) })),
     error: null,
   };
 }

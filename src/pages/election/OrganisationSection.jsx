@@ -10,7 +10,7 @@
 // already established, never a placeholder).
 // ============================================================
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "../../lib/supabase.js";
 import { getConstituencyTerritory, getStateTerritory, listOffices } from "../../domains/election/geography/read.js";
 import { listWardsForLga } from "../../domains/election/geography/read.js";
@@ -30,12 +30,64 @@ function myOwnResponsibility(view, campaignId, userId) {
   return mine ?? null;
 }
 
-function InviteWizard({ campaignId, refresh, territory, offices, myRole, myResponsibility, onDone }) {
+// ELECTIONCANON 1.1 HOME OPERATING CONSOLE — the SAME three-branch identity
+// resolution this component's own nameFor() closure always used (invited
+// roster name -> the viewer's own profile -> the accepting invitation's own
+// name), pulled out to a standalone, no-I/O function so a second caller
+// (Home's reassignment picker) resolves a member's display name the exact
+// same way rather than re-deriving identity. `members`/`invitations`/
+// `myIdentity`/`view` are passed in, never re-fetched here — this function
+// does no I/O of its own, matching every other pure resolver in this repo.
+export function resolveMemberDisplayName({ uid, campaignId, userId, myIdentity, view, invitations }) {
+  const people = Object.values(view?.people ?? {});
+  const invited = people.find((p) => p.id === `invite:${campaignId}:${uid}`)?.name;
+  if (invited) return invited;
+  if (uid === userId && myIdentity) return myIdentity.displayName?.trim() || myIdentity.email || "You";
+  const acceptedInvite = invitations.find((i) => i.accepted_by === uid && i.status === "accepted");
+  if (acceptedInvite?.invited_name) return acceptedInvite.invited_name;
+  return "Campaign member";
+}
+
+// ELECTIONCANON 1.1 HOME OPERATING CONSOLE — the identity pool for the
+// reassignment picker (Design Gate: "campaign_members -> active campaign
+// member -> eligible reassignment candidate", explicitly NOT Mobilize's
+// separate field roster). A fresh, standalone read (own membership +
+// invitations + own profile query) rather than threading component state
+// across pages — mirrors coverage.js's own convention of a read function
+// taking what it needs and fetching for itself. Excludes inactive members
+// by construction (`status = "active"` in the query) and excludes
+// `excludePersonRef` (the slot's current holder) so the picker never offers
+// "reassign to the same person" as a choice. Returns real display names,
+// never a raw uid — same resolveMemberDisplayName() this file's own roster
+// list uses.
+export async function getReassignmentCandidates({ client, campaignId, userId, view, excludePersonRef = null }) {
+  const [{ data: memberRows, error: memberError }, { data: invitations, error: invitationsError }] = await Promise.all([
+    client.from("campaign_members").select("person, member_role, status").eq("campaign_id", campaignId).eq("status", "active"),
+    listInvitations({ client, campaignId }),
+  ]);
+  if (memberError) return { data: null, error: memberError };
+  if (invitationsError) return { data: null, error: invitationsError };
+
+  let myIdentity = null;
+  const { data: { user } } = await client.auth.getUser();
+  if (user) {
+    const { data: profileRow } = await client.from("profiles").select("display_name").eq("id", user.id).maybeSingle();
+    myIdentity = { email: user.email ?? null, displayName: profileRow?.display_name ?? null };
+  }
+
+  const candidates = (memberRows ?? [])
+    .map((m) => ({ id: `invite:${campaignId}:${m.person}`, uid: m.person,
+      name: resolveMemberDisplayName({ uid: m.person, campaignId, userId, myIdentity, view, invitations }) }))
+    .filter((c) => c.id !== excludePersonRef);
+  return { data: candidates, error: null };
+}
+
+function InviteWizard({ campaignId, refresh, territory, offices, myRole, myResponsibility, invitePrefill, onDone }) {
   const [step, setStep] = useState(1);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [role, setRole] = useState(null); // 'DIRECTOR' | RESPONSIBILITY_ROLE key
-  const [lgaId, setLgaId] = useState("");
+  const [role, setRole] = useState(invitePrefill?.role ?? null); // 'DIRECTOR' | RESPONSIBILITY_ROLE key
+  const [lgaId, setLgaId] = useState(invitePrefill?.lgaId ?? "");
   const [wardId, setWardId] = useState("");
   const [tree, setTree] = useState(null);
   const [wards, setWards] = useState([]);
@@ -45,6 +97,11 @@ function InviteWizard({ campaignId, refresh, territory, offices, myRole, myRespo
   const [emailStatus, setEmailStatus] = useState(null);
   const [emailError, setEmailError] = useState(null);
   const [copied, setCopied] = useState(false);
+  // Consumed once the ward list this prefill's LGA resolves to has actually
+  // loaded (see the ward-fetch effect below) — a plain useState target
+  // would be wiped by that effect's own unconditional `setWardId("")`.
+  // A ref (not state) because setting it must never itself trigger a render.
+  const prefillWardRef = useRef(invitePrefill?.level === "ward" ? invitePrefill.geographyRef : null);
 
   // FIX (production verification pass) — a state-level office (Governor,
   // President) carries a real `territory.state` but NO `territory.
@@ -98,7 +155,16 @@ function InviteWizard({ campaignId, refresh, territory, offices, myRole, myRespo
     if (!effectiveLga) { setWards([]); return undefined; }
     (async () => {
       const { data } = await listWardsForLga({ client: supabase, lgaId: effectiveLga });
-      if (!cancelled) setWards(data ?? []);
+      if (cancelled) return;
+      setWards(data ?? []);
+      // One-time prefill consumption — see prefillWardRef's own declaration
+      // above. Only fires for the FIRST load this ref's target ward
+      // actually appears in; a user's own subsequent LGA/role changes never
+      // re-trigger it, since the ref is cleared right after.
+      if (prefillWardRef.current && (data ?? []).some((w) => w.id === prefillWardRef.current)) {
+        setWardId(prefillWardRef.current);
+        prefillWardRef.current = null;
+      }
     })();
     return () => { cancelled = true; };
   }, [role, lgaId, myResponsibility]);
@@ -281,8 +347,21 @@ function BackButton({ onClick }) {
   );
 }
 
-export default function OrganisationSection({ ctx, campaignId, refresh }) {
+export default function OrganisationSection({ ctx, campaignId, refresh, inviteHint = null, onInviteHintConsumed }) {
   const [inviting, setInviting] = useState(false);
+  // ELECTIONCANON 1.1 HOME OPERATING CONSOLE — captured into OWN local
+  // state (not read live off the `inviteHint` prop) the moment it arrives,
+  // then the parent is told to clear its copy. Election.jsx clears
+  // `inviteHint` in the SAME tick that this component starts `inviting`,
+  // which would otherwise hand InviteWizard a null `invitePrefill` on the
+  // render where it actually mounts — capturing it here avoids that race.
+  const [invitePrefill, setInvitePrefill] = useState(null);
+  useEffect(() => {
+    if (!inviteHint) return;
+    setInvitePrefill(inviteHint);
+    setInviting(true);
+    onInviteHintConsumed?.();
+  }, [inviteHint]); // eslint-disable-line
   const [invitations, setInvitations] = useState([]);
   const [userId, setUserId] = useState(null);
   const [members, setMembers] = useState([]);
@@ -334,24 +413,9 @@ export default function OrganisationSection({ ctx, campaignId, refresh }) {
     await loadAll();
   };
 
-  const people = Object.values(view.people ?? {});
-  // PRE-LAUNCH UX CLEANUP PASS — never a raw uid fragment. A coordinator
-  // invited through Organisation always has a real roster name (unchanged,
-  // first branch). The signed-in viewer's OWN row (owner or a Director
-  // invite, which carries no roster entry — see acceptInvitation()'s own
-  // header on why) resolves through their own profile/email. Any other
-  // Director-level member without a roster entry resolves through the
-  // invitation that admitted them (`accepted_by`), which already carries
-  // the name their inviter gave them. Only true unknowns fall back to a
-  // plain, honest label — never an id.
-  const nameFor = (uid) => {
-    const invited = people.find((p) => p.id === `invite:${campaignId}:${uid}`)?.name;
-    if (invited) return invited;
-    if (uid === userId && myIdentity) return myIdentity.displayName?.trim() || myIdentity.email || "You";
-    const acceptedInvite = invitations.find((i) => i.accepted_by === uid && i.status === "accepted");
-    if (acceptedInvite?.invited_name) return acceptedInvite.invited_name;
-    return "Campaign member";
-  };
+  // PRE-LAUNCH UX CLEANUP PASS — never a raw uid fragment. See
+  // resolveMemberDisplayName()'s own header above for the resolution order.
+  const nameFor = (uid) => resolveMemberDisplayName({ uid, campaignId, userId, myIdentity, view, invitations });
   const roleFor = (uid) => {
     const resp = Object.values(view.responsibilities ?? {}).find((r) => r.person === `invite:${campaignId}:${uid}`);
     return resp ? RESPONSIBILITY_ROLE_LABEL[resp.responsibilityRole] : (members.find((m) => m.person === uid)?.member_role === "owner" ? "Campaign Owner" : members.find((m) => m.person === uid)?.member_role === "manager" ? "Campaign Director" : "Team member");
@@ -420,7 +484,7 @@ export default function OrganisationSection({ ctx, campaignId, refresh }) {
             </button>
           ) : (
             <InviteWizard campaignId={campaignId} refresh={loadAll} territory={territory} offices={offices} myRole={myRole} myResponsibility={myResponsibility}
-              onDone={() => setInviting(false)} />
+              invitePrefill={invitePrefill} onDone={() => { setInviting(false); setInvitePrefill(null); }} />
           )}
         </div>
       )}

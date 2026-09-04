@@ -79,6 +79,10 @@ const TERRITORY = {
 
   const empty = await getLgaCoverage({ client, campaignId: CAMPAIGN_A, lgas: [] });
   ok("B5. an empty LGA list returns an empty array without querying, never an error", empty.data.length === 0 && empty.error === null);
+
+  // HOME OPERATING CONSOLE — currentPerson exposed alongside covered.
+  ok("B6. a covered LGA carries its real currentPerson through", result.data.find((l) => l.id === LGA_OKPE).currentPerson === "person-alice");
+  ok("B7. an uncovered LGA's currentPerson is null, never undefined", result.data.find((l) => l.id === LGA_SAPELE).currentPerson === null);
 }
 
 // ---------- ward coverage: exact counts, uncovered ids ----------
@@ -95,6 +99,11 @@ const TERRITORY = {
   ok("C3. Ward 2 (an EXISTING but vacated slot) correctly reads as uncovered, not covered", result.data.find((w) => w.id === WARD_2).covered === false);
   ok("C4. Ward 3 (no row at all) reads as uncovered", result.data.find((w) => w.id === WARD_3).covered === false);
   ok("C5. each ward carries its parent lgaId through, for grouping", result.data.find((w) => w.id === WARD_1).lgaId === LGA_OKPE);
+
+  // HOME OPERATING CONSOLE — currentPerson exposed alongside covered.
+  ok("C6. a covered ward carries its real currentPerson through", result.data.find((w) => w.id === WARD_1).currentPerson === "person-bob");
+  ok("C7. an existing-but-vacated ward's currentPerson is null (matches covered: false)", result.data.find((w) => w.id === WARD_2).currentPerson === null);
+  ok("C8. a ward with no row at all also reads currentPerson: null, never undefined", result.data.find((w) => w.id === WARD_3).currentPerson === null);
 }
 
 // ---------- getUncoveredTerritory: the approved contract ----------
