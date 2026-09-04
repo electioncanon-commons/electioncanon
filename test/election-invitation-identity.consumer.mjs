@@ -96,8 +96,16 @@ console.log("\nB1-3. Campaign identity: campaigns.name, never owner email");
 {
   ok("1. get_invitation_preview() resolves campaign_name from the real campaigns.name column",
      /select\s+c\.name\s+into\s+v_campaign_name\s+from\s+public\.campaigns\s+c/i.test(migration));
-  ok("2. AcceptInvite.jsx renders campaign_name as the dominant <h1> identity",
-     /<h1[^>]*>[\s\S]{0,80}\{invitation\.campaign_name\}/.test(acceptInvite));
+  // ELECTIONCANON 1.1.1 UX REFINEMENT PASS — AcceptInvite.jsx now renders
+  // the DERIVED `campaignName` (parseCampaignTitle(invitation.campaign_name).name),
+  // not invitation.campaign_name directly, so the "[ElectionType]" prefix
+  // never reaches the page. Both halves are checked: the h1 renders the
+  // derived variable, AND that variable is genuinely derived (not a second,
+  // independent name source) from the real invitation.campaign_name field.
+  ok("2a. AcceptInvite.jsx renders the derived campaignName as the dominant <h1> identity",
+     /<h1[^>]*>[\s\S]{0,80}\{campaignName\}/.test(acceptInvite));
+  ok("2b. campaignName is genuinely derived from parseCampaignTitle(invitation?.campaign_name) — not a second, independent source",
+     /const\s*\{\s*name:\s*campaignName[^}]*\}\s*=\s*parseCampaignTitle\(invitation\?\.campaign_name\)/.test(acceptInvite));
   ok("3a. v_campaign_name is assigned from exactly one source in the whole migration (campaigns.name) — never a second, email-shaped fallback",
      (migration.match(/into\s+v_campaign_name\b/gi) ?? []).length === 1);
   ok("3b. AcceptInvite.jsx never references an invited_email/email field anywhere near campaign display",
@@ -121,10 +129,15 @@ console.log("\nB5-6. Responsibility and geography are rendered");
      /Your responsibility/.test(acceptInvite) && /\{roleLabel\}/.test(acceptInvite));
   ok("2. AcceptInvite.jsx labels and renders the area/geography",
      /Your area/.test(acceptInvite) && /invitation\.geography_name/.test(acceptInvite));
-  ok("3. Access.jsx's invitation-context panel also shows responsibility",
-     /Responsibility/.test(access) && /invitationRoleLabel/.test(access));
-  ok("4. Access.jsx's invitation-context panel also shows area/geography when known",
-     /invitationPreview\.geography_name/.test(access));
+  // ELECTIONCANON 1.1.1 UX REFINEMENT PASS — Access.jsx's invitation panel
+  // now shows role+area as one compact "Role · Area" line (invitationRoleArea)
+  // rather than two separately-labeled fields, per the approved Part 5
+  // hierarchy. The underlying facts (real role, real area when known) are
+  // unchanged — only the presentation collapsed from two lines to one.
+  ok("3. Access.jsx's invitation-context panel shows responsibility, via the combined invitationRoleArea line",
+     /invitationRoleArea/.test(access) && /invitationRoleLabel/.test(access));
+  ok("4. invitationRoleArea genuinely incorporates geography_name when known — never a role-only string pretending area was checked",
+     /invitationRoleArea\s*=[\s\S]{0,60}`\$\{invitationRoleLabel\}[\s\S]{0,60}geography_name/.test(access));
 }
 
 console.log("\nB7. Invitation context survives /invite -> /access");
@@ -140,12 +153,51 @@ console.log("\nB7. Invitation context survives /invite -> /access");
 
 console.log("\nB8. Confirmation state contains campaign identity");
 {
-  ok("1. the confirmation-email screen references the campaign name when a pending invitation exists",
-     /invitationPreview\?\.campaign_name/.test(access) && /continue joining/i.test(access));
+  // ELECTIONCANON 1.1.1 UX REFINEMENT PASS — the confirmation screen no
+  // longer embeds the campaign name inside a "continue joining X" sentence
+  // (repetitive with the campaign name already being the dominant identity
+  // elsewhere); it now shows a plain "Confirm your email address to
+  // continue." line plus a separate, distinct context block (campaign name
+  // + role · area) when a pending invitation exists — same real data,
+  // clearer separation.
+  ok("1. the confirmation screen shows a distinct context block (derived campaign name) when a pending invitation exists",
+     /\{invitationPreview\s*&&[\s\S]{0,300}\{invitationCampaignName\}/.test(access));
   ok("2. the confirmation screen is never shown unconditionally — gated on register()'s own needsEmailConfirmation signal",
      /res\.needsEmailConfirmation/.test(access));
   ok("3. needsEmailConfirmation is derived from signUp()'s real returned session, never hardcoded",
      /needsEmailConfirmation:\s*!e\s*&&\s*!data\?\.session/.test(forgeIdentity));
+}
+
+console.log("\nB16. Campaign title bracket artifact ('[ElectionType] Name') never reaches the invitation surfaces");
+{
+  ok("1. AcceptInvite.jsx imports the existing parseCampaignTitle() helper from shared.jsx — no second campaign-name parser",
+     /import\s*\{[^}]*parseCampaignTitle[^}]*\}\s*from\s*["']\.\/election\/shared\.jsx["']/.test(acceptInvite));
+  ok("2. Access.jsx imports the SAME parseCampaignTitle() helper — no second parser there either",
+     /import\s*\{[^}]*parseCampaignTitle[^}]*\}\s*from\s*["']\.\/election\/shared\.jsx["']/.test(access));
+  ok("3. Access.jsx derives invitationCampaignName from parseCampaignTitle(invitationPreview.campaign_name) — genuinely applied, not just imported",
+     /invitationCampaignName\s*=\s*invitationPreview\s*\?\s*parseCampaignTitle\(invitationPreview\.campaign_name\)\.name/.test(access));
+  ok("4. AcceptInvite.jsx exposes the election type as separate metadata (electionMeta), never re-concatenated with brackets into the campaign name",
+     /electionMeta/.test(acceptInvite) && !/\[\$\{electionType\}\]/.test(acceptInvite) && !/\[\s*\{electionType\}/.test(acceptInvite));
+  ok("5. campaigns.name itself is never written anywhere in AcceptInvite.jsx or Access.jsx — this is presentation-only, the canonical value is untouched",
+     !/campaigns?\.name\s*=/.test(acceptInvite) && !/campaigns?\.name\s*=/.test(access));
+}
+
+console.log("\nB17. Invitation email edge function: inviter identity from user_metadata, never profiles or email");
+{
+  const emailFnIndex = raw("../supabase/functions/election-invitation-email/index.ts");
+  ok("1. the email edge function never references public.profiles / the profiles table",
+     !/\.from\(["']profiles["']\)/.test(emailFnIndex));
+  ok("2. inviter identity is resolved from the caller's own user_metadata.display_name",
+     /caller\?\.user_metadata\?\.display_name/.test(emailFnIndex));
+  ok("3. there is no email fallback for invitedByName — a real absence check, not just presence of the metadata read",
+     !/invitedByName[\s\S]{0,60}\|\|\s*caller(\?\.|\.)email/.test(emailFnIndex) &&
+     !/caller(\?\.|\.)email[\s\S]{0,20}\|\|[\s\S]{0,20}invitedByName/.test(emailFnIndex));
+  ok("4. no second query is issued to resolve the inviter — the real code line calls supabase.auth.getUser() exactly once (the file's own explanatory comment also mentions it in prose, deliberately excluded from this count)",
+     (emailFnIndex.match(/=\s*await\s+supabase\.auth\.getUser\(\);/g) ?? []).length === 1 &&
+     !/\.from\(["']profiles["']\)/.test(emailFnIndex));
+  ok("5. RESEND_API_KEY handling, the Resend request, and recipient (invitation.invited_email) resolution are all untouched by this pass",
+     /Deno\.env\.get\(["']RESEND_API_KEY["']\)/.test(emailFnIndex) &&
+     /to:\s*invitation\.invited_email/.test(emailFnIndex));
 }
 
 console.log("\nB9. Full invited email is never exposed pre-auth");

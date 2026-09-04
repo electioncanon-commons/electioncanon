@@ -52,6 +52,23 @@
 // form below, masked, on the post-registration confirmation screen — see
 // maskEmail() — never the invitation's own invited_email column, which
 // this page never reads).
+//
+// ELECTIONCANON 1.1.1 UX REFINEMENT PASS — campaign_name now runs through
+// parseCampaignTitle() (shared.jsx's own existing helper, same one
+// AcceptInvite.jsx now uses — see that file's own header) before display,
+// so the "[Governorship] ..." artifact never reaches this screen either.
+// The invitation-context block is now one compact "Role · Area" line
+// instead of two separately-labeled fields, and the "What you are
+// registering" panel (about choosing a NEW campaign's actor kind) is
+// hidden when a pending invitation exists — that panel describes a choice
+// an invited registrant never makes, since they're joining an EXISTING
+// campaign, not creating one. The invitation-aware heading is reduced
+// from clamp(26px,5vw,40px) to clamp(22px,4.5vw,32px), matching AcceptInvite.
+// jsx's own reduction. The plain (no invitation) "Sign in to ElectionCanon"
+// heading and its accountability/tenant-isolation paragraphs are
+// UNCHANGED — that explanation still belongs on a direct, non-invitation
+// visit; this pass only ever removes it from the invitation-aware branch,
+// which never rendered it in the first place.
 // ============================================================
 
 import { useState, useEffect } from "react";
@@ -60,6 +77,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase.js";
 import { useIdentity } from "../os/ForgeIdentity.jsx";
 import { getInvitationPreview } from "../domains/election/invitations/read.js";
+import { parseCampaignTitle } from "./election/shared.jsx";
 import { FORGE_CLIPS } from "../os/geometry.js";
 
 const ROLE_LABEL = Object.freeze({
@@ -136,6 +154,10 @@ export default function Access() {
   }, [pendingToken]);
   const invitationRoleLabel = invitationPreview?.intended_responsibility_role
     ? ROLE_LABEL[invitationPreview.intended_responsibility_role] : "Campaign Director";
+  const invitationCampaignName = invitationPreview ? parseCampaignTitle(invitationPreview.campaign_name).name : null;
+  const invitationRoleArea = invitationPreview
+    ? `${invitationRoleLabel}${invitationPreview.geography_name ? ` · ${invitationPreview.geography_name}` : ""}`
+    : null;
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
@@ -205,21 +227,12 @@ export default function Access() {
           <div style={{ marginBottom:26, maxWidth:640 }}>
             <div style={{ fontFamily:UI, fontWeight:700, fontSize:11, letterSpacing:"0.18em",
               textTransform:"uppercase", color:PINK, marginBottom:10 }}>You're joining</div>
-            <h1 style={{ fontFamily:DISPLAY, fontWeight:900, fontSize:"clamp(26px,5vw,40px)",
-              letterSpacing:"-0.02em", lineHeight:1.05, margin:"0 0 16px", overflowWrap:"anywhere" }}>
-              {invitationPreview.campaign_name}
+            <h1 style={{ fontFamily:DISPLAY, fontWeight:900, fontSize:"clamp(22px,4.5vw,32px)",
+              letterSpacing:"-0.02em", lineHeight:1.1, margin:"0 0 8px", overflowWrap:"anywhere" }}>
+              {invitationCampaignName}
             </h1>
-            <div style={{ display:"flex", flexWrap:"wrap", gap:"10px 28px" }}>
-              <div style={{ fontFamily:UI, fontSize:13, color:"rgba(245,241,233,0.78)" }}>
-                <span style={{ color:MUTED, textTransform:"uppercase", fontSize:10.5, letterSpacing:"0.08em" }}>Responsibility </span>
-                {invitationRoleLabel}
-              </div>
-              {invitationPreview.geography_name && (
-                <div style={{ fontFamily:UI, fontSize:13, color:"rgba(245,241,233,0.78)" }}>
-                  <span style={{ color:MUTED, textTransform:"uppercase", fontSize:10.5, letterSpacing:"0.08em" }}>Area </span>
-                  {invitationPreview.geography_name}
-                </div>
-              )}
+            <div style={{ fontFamily:UI, fontSize:13.5, color:"rgba(245,241,233,0.78)" }}>
+              {invitationRoleArea}
             </div>
           </div>
         ) : (
@@ -270,13 +283,17 @@ export default function Access() {
               <div style={{ fontFamily:UI, fontWeight:700, fontSize:16, color:IVORY, marginBottom:20, overflowWrap:"anywhere" }}>
                 {maskEmail(confirmedEmail)}
               </div>
-              {invitationPreview?.campaign_name ? (
-                <div style={{ fontFamily:UI, fontSize:14, color:"rgba(245,241,233,0.82)", lineHeight:1.6, marginBottom:22 }}>
-                  Confirm your email address to continue joining <strong style={{ color:IVORY }}>{invitationPreview.campaign_name}</strong>.
-                </div>
-              ) : (
-                <div style={{ fontFamily:UI, fontSize:14, color:"rgba(245,241,233,0.82)", lineHeight:1.6, marginBottom:22 }}>
-                  Confirm your email address, then sign in to continue.
+              <div style={{ fontFamily:UI, fontSize:14, color:"rgba(245,241,233,0.82)", lineHeight:1.6, marginBottom:invitationPreview ? 16 : 22 }}>
+                Confirm your email address to continue.
+              </div>
+              {invitationPreview && (
+                <div style={{ marginBottom:22 }}>
+                  <div style={{ fontFamily:UI, fontWeight:700, fontSize:15, color:IVORY, marginBottom:3, overflowWrap:"anywhere" }}>
+                    {invitationCampaignName}
+                  </div>
+                  <div style={{ fontFamily:UI, fontSize:12.5, color:"rgba(245,241,233,0.72)" }}>
+                    {invitationRoleArea}
+                  </div>
                 </div>
               )}
               <div style={{ display:"flex", gap:10, flexWrap:"wrap" }}>
@@ -348,7 +365,12 @@ export default function Access() {
           </div>
         ) : (
         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(320px,1fr))", gap:28 }}>
-          {mode === "register" && (
+          {/* ELECTIONCANON 1.1.1 UX REFINEMENT PASS — hidden when a pending
+              invitation exists: this panel explains choosing an actor kind
+              for a NEW campaign, which an invited registrant never does —
+              they're joining an EXISTING one. Unchanged for a plain,
+              non-invitation registration, where the choice is real. */}
+          {mode === "register" && !invitationPreview && (
             <div>
               <span style={label}>What you are registering</span>
               <div style={{ clipPath:FORGE_CLIPS.panelBR, background:SURFACE,

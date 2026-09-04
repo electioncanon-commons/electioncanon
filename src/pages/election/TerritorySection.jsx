@@ -72,9 +72,12 @@ function TerritoryWizard({ campaignId, refresh, offices, states }) {
       <Panel>
         {!prepared ? (
           <>
+            {/* ELECTIONCANON 1.1.1 UX REFINEMENT PASS — copy only; the
+                geography architecture and the conditional constituency
+                step below (needsConstituency) are unchanged. */}
             <div style={{ fontFamily: UI, fontSize: 13, color: MUTED, marginBottom: 16, lineHeight: 1.6 }}>
-              ElectionCanon needs to know what election, office, state and constituency this campaign
-              operates in before it can map your territory.
+              Tell ElectionCanon where this campaign operates. Once your election, office and
+              state are set, ElectionCanon reveals your territory — state, LGA, ward and polling unit.
             </div>
             <input value={election} onChange={(e) => setElection(e.target.value)}
               placeholder="e.g. 2027 General Election" aria-label="Election" style={inputStyle} />

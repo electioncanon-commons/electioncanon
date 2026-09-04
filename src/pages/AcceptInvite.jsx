@@ -15,11 +15,23 @@
 // context, not this page itself; see Access.jsx's own header). Responsibility
 // and area are now their own explicitly-labeled sections (previously one
 // combined line), and "Invited by" renders only when the inviter's real
-// profiles.display_name exists (get_invitation_preview()'s new,
-// null-by-default invited_by_name column) — never a raw id, never an
-// email. This page still shows NO email of any kind, unauthenticated or
-// otherwise — see the migration's own header on why that posture is
-// preserved.
+// display name exists (get_invitation_preview()'s invited_by_name column,
+// now resolved from auth.users.raw_user_meta_data — see that migration's
+// own header) — never a raw id, never an email. This page still shows NO
+// email of any kind, unauthenticated or otherwise — see the migration's
+// own header on why that posture is preserved.
+//
+// ELECTIONCANON 1.1.1 UX REFINEMENT PASS — campaign_name is now run
+// through parseCampaignTitle() (shared.jsx's own existing helper — the
+// SAME one HomeSection.jsx already uses for the identical "[ElectionType]
+// Name" artifact, and the SAME logic contract.mjs already mirrors for the
+// invitation email) before display, so "[Governorship] Rock Governor Lag
+// Campaign" reads as "Rock Governor Lag Campaign" with GOVERNORSHIP shown
+// as its own small metadata tag — never a second campaign-name parser,
+// never a write to campaigns.name itself. Heading scale reduced from
+// clamp(24px,6vw,34px) to clamp(22px,4.5vw,32px) — still bold DISPLAY-font
+// editorial type, just proportionate to a page that stacks several context
+// lines above the fold.
 // ============================================================
 
 import { useState, useEffect } from "react";
@@ -28,7 +40,7 @@ import { supabase } from "../lib/supabase.js";
 import { useIdentity } from "../os/ForgeIdentity.jsx";
 import { getInvitationPreview } from "../domains/election/invitations/read.js";
 import { acceptInvitation } from "../domains/election/invitations/write.js";
-import { UI, DISPLAY, BLACK, IVORY, TEAL, AMBER, PINK, MUTED, BORDER } from "./election/shared.jsx";
+import { UI, DISPLAY, BLACK, IVORY, TEAL, AMBER, PINK, MUTED, BORDER, parseCampaignTitle } from "./election/shared.jsx";
 
 const ROLE_LABEL = Object.freeze({
   CONSTITUENCY_LEAD: "Constituency Lead", LGA_COORDINATOR: "LGA Coordinator",
@@ -82,6 +94,10 @@ export default function AcceptInvite() {
   };
 
   const roleLabel = invitation?.intended_responsibility_role ? ROLE_LABEL[invitation.intended_responsibility_role] : "Campaign Director";
+  const { name: campaignName, electionType } = parseCampaignTitle(invitation?.campaign_name);
+  const electionMeta = electionType
+    ? `${electionType.toUpperCase()}${invitation?.geography_state_name ? ` · ${invitation.geography_state_name.toUpperCase()}` : ""}`
+    : null;
 
   return (
     <div style={{ minHeight: "100vh", background: BLACK, padding: "48px 20px", boxSizing: "border-box" }}>
@@ -98,9 +114,14 @@ export default function AcceptInvite() {
             <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", color: PINK, marginBottom: 10 }}>
               You've been invited
             </div>
-            <h1 style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: "clamp(24px,6vw,34px)", lineHeight: 1.08, color: IVORY, margin: "0 0 10px", overflowWrap: "anywhere" }}>
-              {invitation.campaign_name}
+            <h1 style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: "clamp(22px,4.5vw,32px)", lineHeight: 1.1, color: IVORY, margin: "0 0 6px", overflowWrap: "anywhere" }}>
+              {campaignName}
             </h1>
+            {electionMeta && (
+              <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 10.5, letterSpacing: "0.14em", color: TEAL, marginBottom: 10 }}>
+                {electionMeta}
+              </div>
+            )}
             <div style={{ fontFamily: UI, fontSize: 14, color: "rgba(245,241,233,0.72)", lineHeight: 1.5, marginBottom: 22 }}>
               has invited you to join its campaign workspace on ElectionCanon.
             </div>

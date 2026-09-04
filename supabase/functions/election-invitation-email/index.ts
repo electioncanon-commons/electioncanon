@@ -95,17 +95,25 @@ Deno.serve(async (req: Request) => {
 
   // WHO INVITED THEM. The caller of THIS function is the inviter, by
   // construction of create_campaign_invitation() (invited_by = auth.uid()
-  // at creation time) -- so this resolves the CALLER's own profile via
-  // their own forwarded session, the exact same "resolve my own row" RLS
-  // shape profileResolver.js already establishes client-side. It is never a
-  // lookup of some OTHER user's profile, so it needs no new RLS and no new
-  // migration.
+  // at creation time). ELECTIONCANON 1.1.1 PHASE A UX PASS -- this used to
+  // query public.profiles for the caller's own display_name, exactly
+  // mirroring get_invitation_preview()'s own original mistake: that table
+  // does not exist in the ElectionCanon Supabase project (confirmed this
+  // session), so the query always silently failed and this ALWAYS fell
+  // through to `caller.email` -- the inviter's raw email was being shown
+  // as their own name in every invitation email sent. get_invitation_
+  // preview() was already corrected to read auth.users.raw_user_meta_data
+  // ->> 'display_name' instead (20260904010000_election_invitation_
+  // preview_auth_users_inviter_source.sql); this applies the SAME fix
+  // here, more directly -- supabase.auth.getUser() already returns the
+  // caller's own user_metadata (the exact same jsonb signUp()'s own
+  // options.data populates), so no second query, no profiles table, and
+  // no RLS surface is needed at all. No email fallback: an inviter who
+  // never set a display name resolves to null, exactly as
+  // get_invitation_preview() already does, and buildInvitationEmail()
+  // already renders that as "your campaign team" -- never an email.
   const { data: { user: caller } = { user: null } } = await supabase.auth.getUser();
-  let invitedByName = null;
-  if (caller) {
-    const { data: callerProfile } = await supabase.from("profiles").select("display_name").eq("id", caller.id).maybeSingle();
-    invitedByName = callerProfile?.display_name?.trim() || caller.email || null;
-  }
+  const invitedByName = caller?.user_metadata?.display_name?.trim() || null;
 
   const origin = Deno.env.get("SITE_ORIGIN") || req.headers.get("origin") || "https://electioncanon.org";
   const { subject, html, text } = buildInvitationEmail({

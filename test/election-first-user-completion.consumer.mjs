@@ -267,8 +267,24 @@ console.log("\nD — NO PROVIDER SECRET REACHES THE BROWSER BUNDLE");
     /RESEND_FROM_EMAIL[\s\S]{0,40}ElectionCanon <no-reply@electioncanon\.org>/.test(indexTs));
   ok("D7. the inviter's identity is resolved from the CALLER's own forwarded session (auth.getUser()), never a lookup by an arbitrary client-supplied id",
     /supabase\.auth\.getUser\(\)/.test(indexTs) && !/\.eq\("id",\s*(?:body|invitation)\./.test(indexTs));
-  ok("D8. that resolution reads only the caller's OWN profiles row (eq id, caller.id) — the same safe pattern profileResolver.js already uses, no new cross-user read",
-    /\.eq\("id", caller\.id\)/.test(indexTs));
+  // ELECTIONCANON 1.1.1 UX REFINEMENT PASS — this used to read a
+  // public.profiles row scoped to `.eq("id", caller.id)` (the "own row
+  // only" pattern this assertion originally checked for). That table does
+  // not exist in the ElectionCanon Supabase project (confirmed by a
+  // forensic audit this session — see the corrective invitation-preview
+  // migration's own header for the same finding on get_invitation_
+  // preview()), so the query always silently failed and inviter identity
+  // always fell through to the caller's raw email. The fix is stronger
+  // than "scope the query correctly": there is no longer any query at all
+  // — supabase.auth.getUser()'s own already-fetched result already carries
+  // user_metadata (the same jsonb signUp()'s own options.data populates),
+  // so the entire class of risk a table read could pose (cross-user access,
+  // RLS misconfiguration, a table that silently doesn't exist) is
+  // structurally eliminated rather than merely scoped.
+  ok("D8. inviter identity resolution issues NO query at all (no public.profiles read, no risk of a cross-user or table-existence failure) — it reads supabase.auth.getUser()'s own already-fetched user_metadata directly",
+    /caller\?\.user_metadata\?\.display_name/.test(indexTs) &&
+    !/\.from\(["']profiles["']\)/.test(indexTs) &&
+    !/\.eq\("id",\s*caller\.id\)/.test(indexTs));
 }
 
 // ============================================================

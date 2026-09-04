@@ -310,6 +310,35 @@ export default function HomeSection({ ctx, onSection, campaignId: campaignIdProp
   const handleInvite = (hint) => onSection("organisation", hint);
   const handleReassign = (target) => setReassignTarget(target);
 
+  // ELECTIONCANON 1.1.1 UX REFINEMENT PASS — per-alert action buttons.
+  // computeAttention() pushes coverage-gap alerts first, then pending-
+  // invitation alerts, then everything else (see that file's own "Priority
+  // order" comment, already proven by test) — so attention.alerts[i] for
+  // i < coverageGapsForAttention.length is GUARANTEED to be the i-th
+  // uncovered LGA/ward, in the SAME lgas-then-wards order coverageGaps
+  // ForAttention itself was built in. uncoveredForActions mirrors that
+  // exact order/filter so it can be zipped by index — no new computation,
+  // no second coverage read, just the real {level, geographyRef, role,
+  // lgaId} shape CoverageGapsPanel's own onInvite already expects. This
+  // is deliberately NOT a change to attention.js itself (shared with
+  // IntelligenceSection.jsx) — only how Home renders the same real alerts.
+  const uncoveredForActions = [
+    ...coverage.lgas.filter((l) => !l.covered).map((l) => ({ level: "lga", geographyRef: l.id, geographyName: l.name, role: "LGA_COORDINATOR", lgaId: null })),
+    ...coverage.wards.filter((w) => !w.covered).map((w) => ({ level: "ward", geographyRef: w.id, geographyName: w.name, role: "WARD_COORDINATOR", lgaId: w.lgaId ?? null })),
+  ];
+  const pendingInviteAlertStart = uncoveredForActions.length;
+  const pendingInviteAlertEnd = pendingInviteAlertStart + pendingInvitationsForAttention.length;
+  const attentionAction = (index) => {
+    if (index < uncoveredForActions.length) {
+      const gap = uncoveredForActions[index];
+      return { label: "Invite someone", onClick: () => handleInvite({ level: gap.level, geographyRef: gap.geographyRef, role: gap.role, lgaId: gap.lgaId }) };
+    }
+    if (index < pendingInviteAlertEnd) {
+      return { label: "Review", onClick: () => onSection("organisation") };
+    }
+    return null;
+  };
+
   const people = Object.values(view.people ?? {});
   const wards = Object.values(view.wards ?? {});
   const assignments = Object.values(view.assignments ?? {});
@@ -361,6 +390,44 @@ export default function HomeSection({ ctx, onSection, campaignId: campaignIdProp
         </Panel>
       </div>
 
+      {/* ELECTIONCANON 1.1.1 UX REFINEMENT PASS — moved above MyScopeCard/
+          CoverageCard/gaps: "what needs my attention right now" is the
+          first question Home should answer, ahead of secondary campaign
+          summary content. Same real attention.alerts this file always
+          computed — only the position and per-item action changed. */}
+      <div style={{ gridColumn: "1 / -1" }}>
+        <Label>What needs attention today</Label>
+        <Panel accent={attention.alerts.length ? PINK : TEAL}>
+          {attention.alerts.length === 0 ? (
+            <div style={{ fontFamily: UI, fontSize: 13, color: TEAL }}>
+              ALL CLEAR — nothing needs attention right now.
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 8 }}>
+              {attention.alerts.slice(0, 6).map((a, i) => {
+                const action = attentionAction(i);
+                return (
+                  <div key={i} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: TONE_COLOR[a.tone] ?? AMBER, flexShrink: 0 }} />
+                    <span style={{ fontFamily: UI, fontSize: 12.5, color: IVORY, flex: "1 1 auto" }}>{a.text}</span>
+                    {action && (
+                      <button onClick={action.onClick}
+                        style={{ fontFamily: UI, fontWeight: 700, fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase",
+                          padding: "6px 12px", border: `1px solid ${TEAL}`, background: "transparent", color: TEAL, cursor: "pointer", flexShrink: 0 }}>
+                        {action.label}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+              {attention.alerts.length > 6 && (
+                <div style={{ fontFamily: UI, fontSize: 11, color: MUTED }}>+{attention.alerts.length - 6} more — see Intelligence for the full list.</div>
+              )}
+            </div>
+          )}
+        </Panel>
+      </div>
+
       {myResponsibility && (
         <MyScopeCard campaignId={campaignId} userId={myUserId} responsibility={myResponsibility} onOpenChat={() => onSection("chat")} />
       )}
@@ -383,29 +450,6 @@ export default function HomeSection({ ctx, onSection, campaignId: campaignIdProp
             onInvite={handleInvite} onReassign={handleReassign} />
         </div>
       )}
-
-      <div style={{ gridColumn: "1 / -1" }}>
-        <Label>What needs attention today</Label>
-        <Panel accent={attention.alerts.length ? PINK : TEAL}>
-          {attention.alerts.length === 0 ? (
-            <div style={{ fontFamily: UI, fontSize: 13, color: TEAL }}>
-              ALL CLEAR — nothing needs attention right now.
-            </div>
-          ) : (
-            <div style={{ display: "grid", gap: 8 }}>
-              {attention.alerts.slice(0, 6).map((a, i) => (
-                <div key={i} style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                  <span style={{ width: 6, height: 6, borderRadius: "50%", background: TONE_COLOR[a.tone] ?? AMBER, marginTop: 6, flexShrink: 0 }} />
-                  <span style={{ fontFamily: UI, fontSize: 12.5, color: IVORY }}>{a.text}</span>
-                </div>
-              ))}
-              {attention.alerts.length > 6 && (
-                <div style={{ fontFamily: UI, fontSize: 11, color: MUTED }}>+{attention.alerts.length - 6} more — see Intelligence for the full list.</div>
-              )}
-            </div>
-          )}
-        </Panel>
-      </div>
 
       <div style={{ gridColumn: "1 / -1" }}>
         <Label>What changed</Label>

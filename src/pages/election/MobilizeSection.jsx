@@ -98,7 +98,14 @@ function WardsTab({ ctx }) {
   const sorted = [...wards].sort((a, b) => (a.organisation ? 1 : 0) - (b.organisation ? 1 : 0));
   return (
     <div>
-      <Label>Wards known to ElectionCanon</Label>
+      {/* ELECTIONCANON 1.1.1 UX REFINEMENT PASS — user-centered copy only;
+          the underlying data source (ctx.view.wards, Mobilize's own
+          free-text ward log) is unchanged. Deliberately NOT pulled from
+          responsibility_slots/coverage.js — that is a different ward
+          population Home's Coverage card already covers; merging the two
+          here would double-count the same gap under two names. See
+          attention.js's own header for why this distinction matters. */}
+      <Label>Your wards</Label>
       {wards.length > 0 && (
         <div style={{ fontFamily: UI, fontSize: 11.5, color: uncovered.length ? PINK : TEAL, marginBottom: 10 }}>
           {uncovered.length === 0 ? "Every known ward has a coordinator or team assigned." : `${uncovered.length} ward${uncovered.length === 1 ? "" : "s"} with no coordinator or team — shown first below.`}
@@ -106,7 +113,7 @@ function WardsTab({ ctx }) {
       )}
       <Panel>
         {wards.length === 0
-          ? <Empty>No ward assigned yet — record one from Readiness or Assignments.</Empty>
+          ? <Empty>No ward responsibility assigned yet. Responsibilities will appear here when ElectionCanon assigns them to you.</Empty>
           : sorted.map((w) => {
             const outstanding = tasks.filter((t) => t.ward === w.id && t.status !== TASK_STATUS.COMPLETE).length;
             return (
