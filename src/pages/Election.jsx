@@ -119,6 +119,14 @@ function WelcomeOnboarding({ onActivate, busy, error }) {
   const [actorKind, setActorKind] = useState(ACTOR_KIND.CANDIDATE_CAMPAIGN);
   const [electionType, setElectionType] = useState(null);
   const [name, setName] = useState("");
+  // WORKSPACE CREATION UX REFINEMENT — the primary object the user is
+  // creating is THEIR NAMED CAMPAIGN/ORGANISATION, not the actor-kind
+  // choice. This flag only controls copy/labels below (which field is
+  // "Campaign name" vs "Organisation name", which description renders) —
+  // `actorKind` itself, and every value it can hold, is completely
+  // unchanged, so submit()/onActivate()/activateElection() below still
+  // receive exactly the same actorKind they always did.
+  const isObserver = actorKind === ACTOR_KIND.OBSERVER_ORGANISATION;
 
   const submit = () => {
     const clean = name.trim();
@@ -195,8 +203,14 @@ function WelcomeOnboarding({ onActivate, busy, error }) {
     <div style={{ maxWidth: 720 }}>
       <Label>Set up your election workspace</Label>
       <Panel accent={AMBER}>
+        <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED, lineHeight: 1.6, marginBottom: 22 }}>
+          {isObserver
+            ? "Set up the workspace ElectionCanon will use to coordinate your observation organisation, territory, responsibilities and election preparation."
+            : "Set up the workspace ElectionCanon will use to coordinate your campaign, organisation, territory, responsibilities and election preparation."}
+        </div>
+
         <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 10.5, letterSpacing: "0.14em",
-          textTransform: "uppercase", color: TEAL, marginBottom: 10 }}>What are you preparing for?</div>
+          textTransform: "uppercase", color: TEAL, marginBottom: 10 }}>What are you creating?</div>
         {ACTOR_CHOICES.map((c) => (
           <ChoiceButton key={c.kind} active={actorKind === c.kind} onClick={() => setActorKind(c.kind)}>
             <div style={{ fontWeight: 700, fontSize: 13 }}>{c.label}</div>
@@ -204,9 +218,27 @@ function WelcomeOnboarding({ onActivate, busy, error }) {
           </ChoiceButton>
         ))}
 
+        {/* PRIMARY OBJECT — the user's own campaign/organisation name is the
+            thing being created here, not the actor-kind choice above; this
+            field gets the strongest visual weight on the screen (larger
+            display type, thicker amber border) to make that unambiguous. */}
+        <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 12, letterSpacing: "0.1em",
+          textTransform: "uppercase", color: AMBER, margin: "24px 0 10px" }}>
+          {isObserver ? "Organisation name" : "Campaign name"}
+        </div>
+        <input value={name} onChange={(e) => setName(e.target.value)}
+          placeholder={isObserver ? "e.g. Rock Election Observation Council 2026" : "e.g. Rock Governorship Campaign Council 2026"}
+          aria-label={isObserver ? "Organisation name" : "Campaign name"}
+          style={{ width: "100%", boxSizing: "border-box", fontFamily: DISPLAY, fontWeight: 700, fontSize: 17,
+            padding: "15px 16px", background: BLACK, color: IVORY,
+            border: `2px solid ${AMBER}`, outline: "none", marginBottom: 8, clipPath: FORGE_CLIPS.buttonSm }} />
+        <div style={{ fontFamily: UI, fontSize: 11, color: MUTED, marginBottom: 24 }}>
+          This is the name your team will see everywhere in ElectionCanon.
+        </div>
+
         <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 10.5, letterSpacing: "0.14em",
-          textTransform: "uppercase", color: TEAL, margin: "18px 0 10px" }}>
-          What election are you preparing for? <span style={{ color: MUTED, textTransform: "none", letterSpacing: 0 }}>(optional)</span>
+          textTransform: "uppercase", color: TEAL, marginBottom: 10 }}>
+          Election <span style={{ color: MUTED, textTransform: "none", letterSpacing: 0 }}>(optional)</span>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 6 }}>
           {ELECTION_TYPES.map((t) => (
@@ -220,17 +252,9 @@ function WelcomeOnboarding({ onActivate, busy, error }) {
           ))}
         </div>
         <div style={{ fontFamily: UI, fontSize: 11, color: MUTED, marginBottom: 18, lineHeight: 1.5 }}>
-          ElectionCanon does not yet track election level as its own Canon fact — this becomes part
-          of your workspace name below, which the Canon does record.
+          Select the election you are preparing for. This helps ElectionCanon configure the right
+          workspace and territory for your campaign.
         </div>
-
-        <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 10.5, letterSpacing: "0.14em",
-          textTransform: "uppercase", color: TEAL, marginBottom: 10 }}>Workspace name</div>
-        <input value={name} onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Ada for LG Chair, Ward 7" aria-label="Workspace name"
-          style={{ width: "100%", boxSizing: "border-box", fontFamily: UI, fontSize: 13,
-            padding: "11px 13px", background: BLACK, color: IVORY,
-            border: `1px solid ${BORDER}`, outline: "none", marginBottom: 16 }} />
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <button onClick={submit} disabled={busy || !name.trim()}
