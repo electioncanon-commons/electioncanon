@@ -26,7 +26,7 @@ import {
   createCommunication, listCommunications, getCommunication, updateCommunication,
   attachAsset, listCommunicationAssets, detachAsset,
   createLanguageVariant, listLanguageVariants, updateLanguageVariant,
-  createReview, listReviews, createApproval, listApprovals,
+  listReviews, listApprovals,
   COMMUNICATION_LANGUAGES,
 } from "../src/domains/election/communications/api.js";
 
@@ -171,19 +171,31 @@ const REVIEWER = "user-reviewer";
 }
 
 // ---------- 9/10/11/12 — Review and Approval reference the right variant, store real identity ----------
+// GATE A.5.2 — createReview()/createApproval() (direct client INSERT) no
+// longer exist: the migration that adds the real review/approval RPCs
+// (submit_language_variant_for_review/record_review/record_approval/
+// revoke_approval — see election-communications-review-workflow.consumer
+// .mjs, which supersedes this block's OLD self-review/self-approval
+// assertions with the real RPC-enforced mechanism) also DROPS reviews'/
+// approvals' client INSERT policy entirely. What is still true and still
+// tested here, against the UNCHANGED read path: a review/approval row —
+// however it was created — is stored and listed scoped to the correct
+// variant, carrying the real reviewer/approver identity.
 {
   const client = fakeClient();
   const { communication } = await createCommunication({ client, userId: DRAFTER, campaignId: CAMPAIGN_A, title: "Candidate intro" });
   const { variant } = await createLanguageVariant({ client, userId: DRAFTER, campaignId: CAMPAIGN_A, communicationId: communication.id, language: "en", text: "Meet our candidate." });
 
-  const { review, error: reviewError } = await createReview({ client, campaignId: CAMPAIGN_A, languageVariantId: variant.id, reviewerId: REVIEWER, status: "approved", notes: "Reads naturally." });
-  ok("9. Review references the correct language variant", !reviewError && review.language_variant_id === variant.id);
+  const review = { id: "review-fixture-1", language_variant_id: variant.id, campaign_id: CAMPAIGN_A, reviewer_id: REVIEWER, status: "approved", notes: "Reads naturally.", created_at: new Date().toISOString() };
+  client.db.reviews.push(review);
+  ok("9. Review references the correct language variant", review.language_variant_id === variant.id);
   ok("10. Review stores the real reviewer identity, not the drafter's", review.reviewer_id === REVIEWER);
   const { reviews } = await listReviews({ client, languageVariantId: variant.id });
   ok("9b. listReviews returns it, scoped to that variant", reviews.length === 1 && reviews[0].id === review.id);
 
-  const { approval, error: approvalError } = await createApproval({ client, campaignId: CAMPAIGN_A, languageVariantId: variant.id, approverId: REVIEWER, status: "approved" });
-  ok("11. Approval references the correct language variant", !approvalError && approval.language_variant_id === variant.id);
+  const approval = { id: "approval-fixture-1", language_variant_id: variant.id, campaign_id: CAMPAIGN_A, approver_id: REVIEWER, status: "approved", notes: null, created_at: new Date().toISOString() };
+  client.db.approvals.push(approval);
+  ok("11. Approval references the correct language variant", approval.language_variant_id === variant.id);
   ok("12. Approval stores the real approver identity, not the drafter's", approval.approver_id === REVIEWER);
   const { approvals } = await listApprovals({ client, languageVariantId: variant.id });
   ok("11b. listApprovals returns it, scoped to that variant", approvals.length === 1 && approvals[0].id === approval.id);
@@ -197,7 +209,7 @@ const REVIEWER = "user-reviewer";
   const { approvals } = await listApprovals({ client, languageVariantId: variant.id });
   ok("13. No automatic approval occurs — creating a communication and a variant records zero approvals", approvals.length === 0);
 
-  await createReview({ client, campaignId: CAMPAIGN_A, languageVariantId: variant.id, reviewerId: REVIEWER, status: "approved" });
+  client.db.reviews.push({ id: "review-fixture-2", language_variant_id: variant.id, campaign_id: CAMPAIGN_A, reviewer_id: REVIEWER, status: "approved", notes: null, created_at: new Date().toISOString() });
   const { approvals: afterReview } = await listApprovals({ client, languageVariantId: variant.id });
   ok("13b. A review being recorded — even an 'approved' one — never itself creates an approval row (Review and Approval are genuinely distinct)", afterReview.length === 0);
 }
@@ -214,23 +226,11 @@ const REVIEWER = "user-reviewer";
   ok("14b. A variant's text is stored EXACTLY as supplied — never silently machine-translated or rewritten by this layer", pastedYo.text === "Darapọ mọ wa ni ipari ose yii.");
 }
 
-// ---------- DRAFTER =/= REVIEWER / APPROVER ----------
-{
-  const client = fakeClient();
-  const { communication } = await createCommunication({ client, userId: DRAFTER, campaignId: CAMPAIGN_A, title: "Incident communication" });
-  const { variant } = await createLanguageVariant({ client, userId: DRAFTER, campaignId: CAMPAIGN_A, communicationId: communication.id, language: "en", text: "An update on today's incident." });
-
-  const selfReview = await createReview({ client, campaignId: CAMPAIGN_A, languageVariantId: variant.id, reviewerId: DRAFTER, status: "approved" });
-  ok("DRAFTER =/= REVIEWER — the variant's own author cannot review their own variant (enforced here by the migration's own RLS INSERT policy, simulated by this test's fake client)",
-     selfReview.review === null && Boolean(selfReview.error));
-
-  const selfApproval = await createApproval({ client, campaignId: CAMPAIGN_A, languageVariantId: variant.id, approverId: DRAFTER, status: "approved" });
-  ok("DRAFTER =/= APPROVER — the variant's own author cannot approve their own work (same enforcement mechanism as review)",
-     selfApproval.approval === null && Boolean(selfApproval.error));
-
-  const otherReview = await createReview({ client, campaignId: CAMPAIGN_A, languageVariantId: variant.id, reviewerId: REVIEWER, status: "approved" });
-  ok("A genuinely different reviewer is NOT blocked by the same check", !otherReview.error && otherReview.review !== null);
-}
+// DRAFTER =/= REVIEWER / APPROVER is now tested against the REAL enforcement
+// mechanism (the record_review()/record_approval() RPCs' own server-side
+// checks, not a direct-INSERT RLS policy that no longer exists) in
+// election-communications-review-workflow.consumer.mjs — see that file's
+// edge cases 1/2/6. Not duplicated here against a now-inapplicable code path.
 
 console.log(`\n${pass}/${pass + fail} assertions passed${fail ? ` — ${fail} FAILED` : ""}\n`);
 process.exit(fail ? 1 : 0);

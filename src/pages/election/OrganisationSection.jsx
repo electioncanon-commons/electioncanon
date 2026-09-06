@@ -17,6 +17,7 @@ import { listWardsForLga, listPollingUnitsForWard } from "../../domains/election
 import { createInvitation, revokeInvitation } from "../../domains/election/invitations/write.js";
 import { listInvitations } from "../../domains/election/invitations/read.js";
 import { resolveMyResponsibility, isScopedResponsibility } from "../../domains/election/responsibility.js";
+import * as commsApi from "../../domains/election/communications/api.js";
 import { Label, Panel, friendlyError, UI, IVORY, TEAL, AMBER, PINK, MUTED, BORDER, BLACK, inputStyle } from "./shared.jsx";
 
 const RESPONSIBILITY_ROLE_LABEL = Object.freeze({
@@ -431,6 +432,86 @@ function BackButton({ onClick }) {
   );
 }
 
+// GATE A.5.2 — the smallest reviewer-language administration surface,
+// reusing Organisation's own existing member roster rather than a new
+// screen (no HR-style skills platform). Owner/manager grant/remove any
+// member's capability; a staff member sees only their OWN capability
+// status, never the whole roster's — matching this codebase's existing
+// scoped-visibility discipline (Gate A's own isScoped principle) rather
+// than inventing a second one. Grant/remove authorization is NOT re-
+// derived here — campaign_member_languages' own RLS (owner/manager-only
+// insert/delete) is what actually decides; this UI only hides a control
+// nobody but an owner/manager could use successfully anyway.
+function LanguageCapabilitiesPanel({ campaignId, userId, myRole, members, nameFor }) {
+  const [capabilities, setCapabilities] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const isOwnerOrManager = myRole === "owner" || myRole === "manager";
+
+  const load = async () => {
+    const { capabilities: rows } = await commsApi.listCampaignMemberLanguages({ client: supabase, campaignId });
+    setCapabilities(rows);
+  };
+  useEffect(() => { load(); }, [campaignId]); // eslint-disable-line
+
+  const hasLanguage = (person, code) => capabilities.some((c) => c.person === person && c.language === code);
+
+  const toggle = async (person, code) => {
+    setBusy(true); setError(null);
+    const result = hasLanguage(person, code)
+      ? await commsApi.revokeMemberLanguage({ client: supabase, campaignId, person, language: code })
+      : await commsApi.grantMemberLanguage({ client: supabase, campaignId, person, language: code, grantedBy: userId });
+    setBusy(false);
+    if (result.error) { setError(result.error); return; }
+    await load();
+  };
+
+  // A staff member sees only their own row — never the full roster's
+  // capability state, matching the same "no broader view than your own
+  // scope justifies" principle Gate A already applies elsewhere.
+  const visibleMembers = isOwnerOrManager ? members : members.filter((m) => m.person === userId);
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      <Label>Language capabilities</Label>
+      <Panel>
+        <div style={{ fontFamily: UI, fontSize: 11.5, color: MUTED, marginBottom: 10 }}>
+          Who may review native-language Communications content for this campaign. Owner/manager may review any language regardless of what is shown here.
+        </div>
+        {visibleMembers.length === 0 ? (
+          <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>No members to show.</div>
+        ) : visibleMembers.map((m) => (
+          <div key={m.person} style={{ padding: "9px 0", borderBottom: `1px solid ${BORDER}` }}>
+            <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 12, color: IVORY, marginBottom: 6 }}>{nameFor(m.person)}</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {commsApi.COMMUNICATION_LANGUAGES.map((l) => {
+                const granted = hasLanguage(m.person, l.code);
+                return isOwnerOrManager ? (
+                  <button key={l.code} disabled={busy} onClick={() => toggle(m.person, l.code)}
+                    style={{ fontFamily: UI, fontWeight: 700, fontSize: 9.5, letterSpacing: "0.06em", textTransform: "uppercase",
+                      padding: "4px 9px", border: `1px solid ${granted ? TEAL : BORDER}`, background: granted ? TEAL : "transparent",
+                      color: granted ? BLACK : MUTED, cursor: "pointer" }}>
+                    {l.label}
+                  </button>
+                ) : granted ? (
+                  <span key={l.code} style={{ fontFamily: UI, fontWeight: 700, fontSize: 9.5, letterSpacing: "0.06em", textTransform: "uppercase",
+                    padding: "4px 9px", border: `1px solid ${TEAL}`, color: TEAL }}>
+                    {l.label}
+                  </span>
+                ) : null;
+              })}
+              {!isOwnerOrManager && !commsApi.COMMUNICATION_LANGUAGES.some((l) => hasLanguage(m.person, l.code)) && (
+                <span style={{ fontFamily: UI, fontSize: 11, color: MUTED }}>No declared language capability yet.</span>
+              )}
+            </div>
+          </div>
+        ))}
+        {error && <div style={{ fontFamily: UI, fontSize: 12, color: PINK, marginTop: 10 }}>{friendlyError(error)}</div>}
+      </Panel>
+    </div>
+  );
+}
+
 export default function OrganisationSection({ ctx, campaignId, refresh, inviteHint = null, onInviteHintConsumed }) {
   const [inviting, setInviting] = useState(false);
   // ELECTIONCANON 1.1 HOME OPERATING CONSOLE — captured into OWN local
@@ -537,6 +618,8 @@ export default function OrganisationSection({ ctx, campaignId, refresh, inviteHi
           </div>
         ))}
       </Panel>
+
+      <LanguageCapabilitiesPanel campaignId={campaignId} userId={userId} myRole={myRole} members={members} nameFor={nameFor} />
 
       {invitations.length > 0 && (
         <div style={{ marginTop: 18 }}>
