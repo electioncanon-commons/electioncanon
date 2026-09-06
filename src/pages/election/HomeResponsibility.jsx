@@ -27,8 +27,8 @@ import { prepareGeographyWrite, approveGeographyWrite, GEOGRAPHY_OPERATION } fro
 import { getReassignmentCandidates } from "./OrganisationSection.jsx";
 import { Label, Panel, linkBtn, friendlyError, UI, IVORY, MUTED, TEAL, AMBER, PINK, BLACK, BORDER, inputStyle } from "./shared.jsx";
 
-const ROLE_LABEL = Object.freeze({ lga: "LGA Coordinator", ward: "Ward Coordinator" });
-const LEVEL_LABEL = Object.freeze({ lga: "LGA", ward: "Ward" });
+const ROLE_LABEL = Object.freeze({ lga: "LGA Coordinator", ward: "Ward Coordinator", polling_unit: "Polling-Unit Agent" });
+const LEVEL_LABEL = Object.freeze({ lga: "LGA", ward: "Ward", polling_unit: "Polling Unit" });
 
 /** Constituency/LGA/ward covered counts — the exact numbers
  *  getUncoveredTerritory() already computed, nothing derived twice. */
@@ -235,4 +235,94 @@ export function ReassignResponsibilityPanel({ campaignId, userId, view, level, g
   );
 }
 
-export default { CoverageCard, CoverageGapsPanel, ReassignResponsibilityPanel };
+// ============================================================
+// GATE A — SCOPED VIEWS (LGA/Ward Coordinator)
+//
+// The row/action pattern below deliberately mirrors CoverageGapsPanel's own
+// (name, parent, covered/not-covered chip, Invite/Change-Responsibility
+// action) — reused visually, not re-imported, because CoverageGapsPanel's
+// own rows are always CAMPAIGN-WIDE (every LGA and ward in the territory);
+// these two components render a caller-supplied, ALREADY-SCOPED list only
+// (an LGA Coordinator's own ~12 wards, or a Ward Coordinator's own PUs) —
+// the scoping itself happens in HomeSection.jsx (which LGA/ward ids to ask
+// for), never here. No new coverage calculation: both take the exact
+// {id, name, covered, currentPerson} shape getWardCoverage()/
+// getPollingUnitCoverage() already return.
+// ============================================================
+
+/** An LGA Coordinator's own wards — name, coordinator, PU count (from the
+ *  caller-supplied count-only pollingUnitCounts map), covered/uncovered,
+ *  and the SAME Invite/Change-Responsibility actions CoverageGapsPanel
+ *  already offers, wired to the SAME handlers (write-path authorization is
+ *  unchanged — write_responsibility() already refuses a ward outside the
+ *  caller's own LGA regardless of what this UI shows). */
+export function ScopedWardsPanel({ wards, pollingUnitCounts = {}, onInvite, onReassign }) {
+  if (wards.length === 0) {
+    return <Panel><div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>No wards recorded yet for this LGA — see supabase/geography-import for import status.</div></Panel>;
+  }
+  return (
+    <Panel>
+      {wards.map((w) => (
+        <div key={w.id} style={rowWrap}>
+          <div>
+            <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 12.5, color: IVORY }}>{w.name}</div>
+            <div style={{ fontFamily: UI, fontSize: 11, color: MUTED, marginTop: 2 }}>
+              {pollingUnitCounts[w.id] ?? 0} polling unit{(pollingUnitCounts[w.id] ?? 0) === 1 ? "" : "s"}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <span style={{ fontFamily: UI, fontWeight: 700, fontSize: 9.5, letterSpacing: "0.1em", textTransform: "uppercase",
+              color: w.covered ? TEAL : PINK, border: `1px solid ${w.covered ? TEAL : PINK}`, padding: "3px 8px" }}>
+              {w.covered ? "Covered" : "Not covered"}
+            </span>
+            {w.covered ? (
+              <button onClick={() => onReassign({ level: "ward", geographyRef: w.id, geographyName: w.name, currentPersonRef: w.currentPerson })} style={smallBtn(AMBER)}>
+                Change Responsibility
+              </button>
+            ) : (
+              <button onClick={() => onInvite({ level: "ward", geographyRef: w.id, role: "WARD_COORDINATOR", lgaId: w.lgaId ?? null })} style={smallBtn(TEAL)}>
+                Invite
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
+    </Panel>
+  );
+}
+
+/** A Ward Coordinator's own polling units — code/name, agent status,
+ *  covered/uncovered, same action pattern as ScopedWardsPanel. */
+export function ScopedPollingUnitsPanel({ pollingUnits, onInvite, onReassign }) {
+  if (pollingUnits.length === 0) {
+    return <Panel><div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>No polling units imported yet for this ward.</div></Panel>;
+  }
+  return (
+    <Panel>
+      {pollingUnits.map((p) => (
+        <div key={p.id} style={rowWrap}>
+          <div>
+            <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 12.5, color: IVORY }}>{p.code}{p.name ? ` — ${p.name}` : ""}</div>
+          </div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <span style={{ fontFamily: UI, fontWeight: 700, fontSize: 9.5, letterSpacing: "0.1em", textTransform: "uppercase",
+              color: p.covered ? TEAL : PINK, border: `1px solid ${p.covered ? TEAL : PINK}`, padding: "3px 8px" }}>
+              {p.covered ? "Agent assigned" : "No agent"}
+            </span>
+            {p.covered ? (
+              <button onClick={() => onReassign({ level: "polling_unit", geographyRef: p.id, geographyName: p.code, currentPersonRef: p.currentPerson })} style={smallBtn(AMBER)}>
+                Change Responsibility
+              </button>
+            ) : (
+              <button onClick={() => onInvite({ level: "polling_unit", geographyRef: p.id, role: "POLLING_UNIT_AGENT", lgaId: null })} style={smallBtn(TEAL)}>
+                Invite
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
+    </Panel>
+  );
+}
+
+export default { CoverageCard, CoverageGapsPanel, ReassignResponsibilityPanel, ScopedWardsPanel, ScopedPollingUnitsPanel };

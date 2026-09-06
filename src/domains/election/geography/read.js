@@ -133,7 +133,25 @@ export async function listPollingUnitsForWard({ client, wardId }) {
   return client.from("geography_polling_units").select("id, ward_id, code, name").eq("ward_id", wardId).order("code");
 }
 
+/** Polling-unit COUNTS for every ward in a caller-supplied, already-bounded
+ *  list — e.g. an LGA Coordinator's own ~12 wards, never a state or
+ *  national list. One query, one column (`ward_id`), never a full PU row —
+ *  the exact scale-hardening discipline getConstituencyTerritory()'s own
+ *  header already documents, extended to a per-ward breakdown instead of a
+ *  single grand total. Avoids the N+1 alternative (one count query per
+ *  ward) a naive "show each ward's PU count" list would otherwise need. */
+export async function getPollingUnitCountsByWard({ client, wardIds = [] }) {
+  if (wardIds.length === 0) return { data: {}, error: null };
+  const { data, error } = await client
+    .from("geography_polling_units").select("ward_id").in("ward_id", wardIds);
+  if (error) return { data: null, error };
+  const counts = {};
+  for (const id of wardIds) counts[id] = 0;
+  for (const row of data ?? []) counts[row.ward_id] = (counts[row.ward_id] ?? 0) + 1;
+  return { data: counts, error: null };
+}
+
 export default {
   listOffices, listStates, listConstituencies, getConstituencyTerritory, getStateTerritory,
-  listWardsForLga, listPollingUnitsForWard,
+  listWardsForLga, listPollingUnitsForWard, getPollingUnitCountsByWard,
 };

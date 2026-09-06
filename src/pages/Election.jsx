@@ -32,7 +32,7 @@
 // ============================================================
 
 import { useState, useCallback, useEffect } from "react";
-import { useNavigate, Navigate } from "react-router-dom";
+import { useNavigate, useLocation, Navigate } from "react-router-dom";
 import { supabase, isConfigured } from "../lib/supabase.js";
 import { useIdentity } from "../os/ForgeIdentity.jsx";
 import { FORGE_CLIPS } from "../os/geometry.js";
@@ -608,8 +608,21 @@ const TITLE_BY_SECTION = Object.freeze({
   studio: "Campaign Studio", "election-day": "Election Day", intelligence: "Intelligence", settings: "Settings",
 });
 
+// GATE A — labels for the one-time welcome banner's cosmetic role mention
+// only (AcceptInvite.jsx's own navigate() state, see that file's own
+// comment on why this is never trusted for actual scope). A small local
+// copy, matching the same four labels this codebase already keeps
+// separately in AcceptInvite.jsx/OrganisationSection.jsx/HomeSection.jsx —
+// not centralised further here, since this is a label duplicate, not the
+// responsibility LOOKUP duplication Gate A's Part 1 unified.
+const WELCOME_ROLE_LABEL = Object.freeze({
+  CONSTITUENCY_LEAD: "Constituency Lead", LGA_COORDINATOR: "LGA Coordinator",
+  WARD_COORDINATOR: "Ward Coordinator", POLLING_UNIT_AGENT: "Polling-Unit Agent",
+});
+
 export default function Election() {
   const nav = useNavigate();
+  const location = useLocation();
   const { configured, loading: identityLoading, session, signOut } = useIdentity();
 
   const [ctx, setCtx] = useState(null);
@@ -788,7 +801,14 @@ export default function Election() {
                 You have joined {workspaceName || "this campaign"}
               </div>
               <div style={{ fontFamily: UI, fontSize: 13, color: MUTED, marginBottom: 14 }}>
-                Head to Territory or Organisation to see your role and responsibility.
+                {/* GATE A — cosmetic only: location.state is a same-tick hint
+                    from AcceptInvite.jsx's own navigate() call, never re-read
+                    for any actual scope decision below (Home/Territory/
+                    Organisation/Readiness each independently resolve the
+                    real current responsibility from ctx.view). */}
+                {location.state?.justAcceptedResponsibility
+                  ? `You're now the ${WELCOME_ROLE_LABEL[location.state.justAcceptedResponsibility.responsibilityRole] ?? "responsible person"} for your assigned area — see below.`
+                  : "Head to Territory or Organisation to see your role and responsibility."}
               </div>
               <button onClick={() => { setShowWelcome(false); nav("/election", { replace: true }); }}
                 style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase",

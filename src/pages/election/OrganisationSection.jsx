@@ -13,9 +13,10 @@
 import { useState, useEffect, useRef } from "react";
 import { supabase } from "../../lib/supabase.js";
 import { getConstituencyTerritory, getStateTerritory, listOffices } from "../../domains/election/geography/read.js";
-import { listWardsForLga } from "../../domains/election/geography/read.js";
+import { listWardsForLga, listPollingUnitsForWard } from "../../domains/election/geography/read.js";
 import { createInvitation, revokeInvitation } from "../../domains/election/invitations/write.js";
 import { listInvitations } from "../../domains/election/invitations/read.js";
+import { resolveMyResponsibility, isScopedResponsibility } from "../../domains/election/responsibility.js";
 import { Label, Panel, friendlyError, UI, IVORY, TEAL, AMBER, PINK, MUTED, BORDER, BLACK, inputStyle } from "./shared.jsx";
 
 const RESPONSIBILITY_ROLE_LABEL = Object.freeze({
@@ -25,10 +26,13 @@ const RESPONSIBILITY_ROLE_LABEL = Object.freeze({
 
 const STATUS_COLOR = Object.freeze({ pending: AMBER, accepted: TEAL, expired: MUTED, revoked: PINK });
 
-function myOwnResponsibility(view, campaignId, userId) {
-  const mine = Object.values(view?.responsibilities ?? {}).find((r) => r.person === `invite:${campaignId}:${userId}`);
-  return mine ?? null;
-}
+// GATE A — the private myOwnResponsibility() this file previously defined
+// (byte-identical lookup, minus HomeSection.jsx's own CONSTITUENCY_LEAD
+// presentation filter) is now the SHARED resolveMyResponsibility()
+// (src/domains/election/responsibility.js) — see that module's own header.
+// This file's own use (gating InviteWizard's offerable roles) always
+// wanted the RAW resolution, CONSTITUENCY_LEAD included, so no filter is
+// applied here — unchanged behavior.
 
 // ELECTIONCANON 1.1 HOME OPERATING CONSOLE — the SAME three-branch identity
 // resolution this component's own nameFor() closure always used (invited
@@ -91,6 +95,13 @@ function InviteWizard({ campaignId, refresh, territory, offices, myRole, myRespo
   const [wardId, setWardId] = useState("");
   const [tree, setTree] = useState(null);
   const [wards, setWards] = useState([]);
+  // LOOP 4 TASK 2 — a Polling-Unit Agent's own geography must be a REAL
+  // geography_polling_units.id, never the ward's own id (the bug this pass
+  // fixes — see puId's own use in send() below). `pollingUnits` is fetched
+  // exactly like `wards` above: real rows, scoped to one ward, never a
+  // second geography source.
+  const [puId, setPuId] = useState("");
+  const [pollingUnits, setPollingUnits] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [sentToken, setSentToken] = useState(null);
@@ -150,6 +161,7 @@ function InviteWizard({ campaignId, refresh, territory, offices, myRole, myRespo
   useEffect(() => {
     let cancelled = false;
     setWardId("");
+    setPuId("");
     if (role !== "WARD_COORDINATOR" && role !== "POLLING_UNIT_AGENT") { setWards([]); return undefined; }
     const effectiveLga = (myResponsibility?.responsibilityRole === "LGA_COORDINATOR") ? myResponsibility.geographyRef : lgaId;
     if (!effectiveLga) { setWards([]); return undefined; }
@@ -169,20 +181,67 @@ function InviteWizard({ campaignId, refresh, territory, offices, myRole, myRespo
     return () => { cancelled = true; };
   }, [role, lgaId, myResponsibility]);
 
+  // LOOP 4 TASK 2 — a Ward Coordinator inviting a Polling-Unit Agent never
+  // re-picks their own ward (mirrors effectiveLga's own pattern one level
+  // up: an LGA Coordinator never re-picks their own LGA). An owner/manager
+  // still narrows LGA -> ward manually first, exactly as before.
+  const effectiveWardForPu = myResponsibility?.responsibilityRole === "WARD_COORDINATOR" ? myResponsibility.geographyRef : wardId;
+  const [autoWardName, setAutoWardName] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPuId("");
+    if (role !== "POLLING_UNIT_AGENT" || !effectiveWardForPu) { setPollingUnits([]); setAutoWardName(null); return undefined; }
+    (async () => {
+      // The ward's own name is fetched directly ONLY on the auto-derived
+      // path (a Ward Coordinator never went through listWardsForLga(), so
+      // `wards` never carries their own ward's name) — a single-row lookup,
+      // never a second geography source, same discipline as every other
+      // one-row name lookup in this codebase (e.g. HomeSection.jsx's
+      // MyScopeCard).
+      const [{ data: pus }, wardNameResult] = await Promise.all([
+        listPollingUnitsForWard({ client: supabase, wardId: effectiveWardForPu }),
+        myResponsibility?.responsibilityRole === "WARD_COORDINATOR"
+          ? supabase.from("geography_wards").select("id, name").eq("id", effectiveWardForPu).maybeSingle()
+          : Promise.resolve({ data: null }),
+      ]);
+      if (cancelled) return;
+      setPollingUnits(pus ?? []);
+      setAutoWardName(wardNameResult?.data?.name ?? null);
+    })();
+    return () => { cancelled = true; };
+  }, [role, effectiveWardForPu, myResponsibility]);
+
   const needsLga = role === "LGA_COORDINATOR" || (role === "WARD_COORDINATOR" && myResponsibility?.responsibilityRole !== "LGA_COORDINATOR");
-  const needsWard = role === "WARD_COORDINATOR" || role === "POLLING_UNIT_AGENT";
+  // A Ward Coordinator inviting a Polling-Unit Agent never sees a ward
+  // picker either — effectiveWardForPu already resolved it above.
+  const needsWard = role === "WARD_COORDINATOR"
+    || (role === "POLLING_UNIT_AGENT" && myResponsibility?.responsibilityRole !== "WARD_COORDINATOR");
+  const needsPu = role === "POLLING_UNIT_AGENT";
   const territoryReady = role === "DIRECTOR"
     || (role === "LGA_COORDINATOR" && lgaId)
     || (role === "WARD_COORDINATOR" && wardId)
-    || (role === "POLLING_UNIT_AGENT" && wardId); // PU picker itself is a future step once real PU data exists
+    || (role === "POLLING_UNIT_AGENT" && puId);
 
   const roleLabel = role === "DIRECTOR" ? "Campaign Director" : RESPONSIBILITY_ROLE_LABEL[role];
   const lgaName = availableLgas.find((l) => l.id === (lgaId || myResponsibility?.geographyRef))?.name;
-  const wardName = wards.find((w) => w.id === wardId)?.name;
+  const wardName = wards.find((w) => w.id === wardId)?.name ?? autoWardName;
+  const selectedPu = pollingUnits.find((p) => p.id === puId);
+  const puLabel = selectedPu ? `${selectedPu.code}${selectedPu.name ? ` — ${selectedPu.name}` : ""}` : null;
 
   const send = async () => {
     setBusy(true); setError(null);
-    const geographyRef = role === "WARD_COORDINATOR" || role === "POLLING_UNIT_AGENT" ? wardId
+    // LOOP 4 TASK 2 FIX — a Polling-Unit Agent's geographyRef is now the
+    // REAL selected geography_polling_units.id (puId), never the ward's own
+    // id. The previous code used wardId for BOTH Ward Coordinator and
+    // Polling-Unit Agent, which meant create_campaign_invitation()'s own
+    // PU-authorization join (pu.id::text = p_intended_geography_ref) could
+    // never match a real row — confirmed live: this made every
+    // Polling-Unit Agent invitation attempt fail server-side. No
+    // authorization logic changed here; this only supplies the correct id
+    // the existing, already-correct SQL join expects.
+    const geographyRef = role === "POLLING_UNIT_AGENT" ? puId
+      : role === "WARD_COORDINATOR" ? wardId
       : role === "LGA_COORDINATOR" ? lgaId : null;
     const { invitation, emailStatus: status, emailError: sendEmailError, error: sendError } = await createInvitation({
       client: supabase, campaignId, invitedName: name.trim(), invitedEmail: email.trim(),
@@ -301,6 +360,25 @@ function InviteWizard({ campaignId, refresh, territory, offices, myRole, myRespo
               )}
             </>
           )}
+          {needsPu && (
+            <>
+              <div style={{ fontFamily: UI, fontSize: 10, color: MUTED, marginBottom: 4, textTransform: "uppercase" }}>
+                Polling Unit{autoWardName ? ` — ${autoWardName}` : ""}
+              </div>
+              {!effectiveWardForPu ? (
+                <div style={{ fontFamily: UI, fontSize: 12, color: MUTED, marginBottom: 9 }}>Select a ward first.</div>
+              ) : pollingUnits.length === 0 ? (
+                <div style={{ fontFamily: UI, fontSize: 12, color: MUTED, marginBottom: 9 }}>
+                  Territory data will appear here when the authoritative reference data for this ward is available.
+                </div>
+              ) : (
+                <select value={puId} onChange={(e) => setPuId(e.target.value)} aria-label="Polling Unit" style={inputStyle}>
+                  <option value="">Select a polling unit…</option>
+                  {pollingUnits.map((p) => <option key={p.id} value={p.id}>{p.code}{p.name ? ` — ${p.name}` : ""}</option>)}
+                </select>
+              )}
+            </>
+          )}
           <div style={{ display: "flex", gap: 8 }}>
             <BackButton onClick={() => setStep(2)} />
             <button onClick={() => setStep(4)} disabled={!territoryReady}
@@ -316,7 +394,7 @@ function InviteWizard({ campaignId, refresh, territory, offices, myRole, myRespo
           <div style={{ fontFamily: UI, fontSize: 13, color: IVORY, lineHeight: 1.9, marginBottom: 16 }}>
             Person: <strong>{name}</strong> ({email})<br />
             Role: <strong>{roleLabel}</strong><br />
-            {role !== "DIRECTOR" && <>Territory: <strong>{[lgaName, wardName].filter(Boolean).join(" → ")}</strong><br /></>}
+            {role !== "DIRECTOR" && <>Territory: <strong>{[lgaName, wardName, puLabel].filter(Boolean).join(" → ")}</strong><br /></>}
             {/* ELECTIONCANON 1.1.1 PHASE A — this was mislabeled "Campaign:"
                 while showing tree?.constituency?.name, never campaigns.name;
                 a constituency and a campaign are different real facts (see
@@ -411,8 +489,20 @@ export default function OrganisationSection({ ctx, campaignId, refresh, inviteHi
   const view = ctx.view ?? {};
   const myMemberRow = members.find((m) => m.person === userId);
   const myRole = myMemberRow?.member_role ?? null;
-  const myResponsibility = userId ? myOwnResponsibility(view, campaignId, userId) : null;
-  const canInvite = myRole === "owner" || myRole === "manager" || myResponsibility != null;
+  const myResponsibility = resolveMyResponsibility({ view, campaignId, userId });
+  // GATE A — FIX: canInvite previously fired for ANY held responsibility
+  // (`myResponsibility != null`), which meant a Polling-Unit Agent — who
+  // InviteWizard's own canOfferDirector/Lga/Ward/Pu booleans (below,
+  // mirrored here) ALL correctly evaluate false for — still saw the
+  // "+ Invite Person" button, then hit step 2 with zero role choices to
+  // pick from: a dead end. canInvite now mirrors the SAME real offerable-
+  // role check InviteWizard already performs, so the button only ever
+  // appears when there is truly something this viewer could offer.
+  const canOfferDirector = myRole === "owner" || myRole === "manager";
+  const canOfferLga = myRole === "owner" || myRole === "manager";
+  const canOfferWard = myRole === "owner" || myRole === "manager" || myResponsibility?.responsibilityRole === "LGA_COORDINATOR";
+  const canOfferPu = myRole === "owner" || myRole === "manager" || myResponsibility?.responsibilityRole === "WARD_COORDINATOR";
+  const canInvite = canOfferDirector || canOfferLga || canOfferWard || canOfferPu;
 
   const revoke = async (invitationId) => {
     await revokeInvitation({ client: supabase, invitationId });

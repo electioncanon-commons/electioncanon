@@ -75,7 +75,10 @@ export default function AcceptInvite() {
   const accept = async () => {
     setBusy(true); setError(null);
     const displayName = invitation?.invited_name ?? null;
-    const { accepted, error: acceptError } = await acceptInvitation({ client: supabase, token, displayName });
+    // GATE A — `responsibility` (added to acceptInvitation()'s return this
+    // pass) is the SERVER-CONFIRMED grant: {responsibilityRole, level,
+    // geographyRef}, or null for a Director-level invitation.
+    const { accepted, error: acceptError, responsibility } = await acceptInvitation({ client: supabase, token, displayName });
     setBusy(false);
     if (!accepted) { setError(acceptError); return; }
     try { sessionStorage.removeItem("electioncanon_pending_invite_token"); } catch { /* best effort */ }
@@ -90,7 +93,21 @@ export default function AcceptInvite() {
       setPartialSuccess(true);
       return;
     }
-    navigate("/election?welcome=1");
+    // The DESTINATION is always the same /election route regardless of
+    // responsibility — there is no separate "coordinator route" to send
+    // anyone to (see Election.jsx's own role-aware Home/Territory, Gate A).
+    // `state` here is a same-tick, purely cosmetic hint for the welcome
+    // banner's copy (e.g. naming the role right away instead of a generic
+    // "you've joined") — NOT a scope grant. Unlike a URL query parameter,
+    // router state lives only in this one in-memory history entry: it
+    // cannot be crafted into a shareable link, bookmarked, or replayed by
+    // anyone who didn't just complete this exact acceptance. Home's actual
+    // scoped rendering (MyScopeCard, Territory, Organisation, Readiness)
+    // NEVER reads this — each independently re-resolves the caller's
+    // current responsibility from the canonical Canon
+    // (resolveMyResponsibility() over a fresh getElectionContext() read) on
+    // every mount, exactly as required.
+    navigate("/election?welcome=1", responsibility ? { state: { justAcceptedResponsibility: responsibility } } : undefined);
   };
 
   const roleLabel = invitation?.intended_responsibility_role ? ROLE_LABEL[invitation.intended_responsibility_role] : "Campaign Director";

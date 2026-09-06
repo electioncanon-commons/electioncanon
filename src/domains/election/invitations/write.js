@@ -29,7 +29,7 @@
 
 import { proposeAddPerson, executeAddPerson } from "../mobilization/write.js";
 import { proposeAssignResponsibility, executeAssignResponsibility } from "../geography/write.js";
-import { getConstituencyTerritory } from "../geography/read.js";
+import { getConstituencyTerritory, getStateTerritory } from "../geography/read.js";
 import { getElectionContext } from "../../../os/electionContext.js";
 
 const RESPONSIBILITY_ROLE_TO_PERSON_ROLE_TYPE = Object.freeze({
@@ -97,7 +97,7 @@ export async function acceptInvitation({ client, token, displayName }) {
 
   if (!responsibilityRole) {
     // Director-level invitation -- membership alone is the whole grant.
-    return { accepted: true, campaignId, error: null };
+    return { accepted: true, campaignId, error: null, responsibility: null };
   }
 
   const { data: { user } } = await client.auth.getUser();
@@ -130,9 +130,29 @@ export async function acceptInvitation({ client, token, displayName }) {
   let geographyTree = null;
   if (level === "lga" || level === "ward") {
     const ctx = await getElectionContext({ userId, client, requestedCampaign: campaignId });
-    const constituencyId = ctx?.view?.territory?.constituency ?? null;
+    const territory = ctx?.view?.territory ?? null;
+    const constituencyId = territory?.constituency ?? null;
     if (constituencyId) {
       const { data } = await getConstituencyTerritory({ client, constituencyId });
+      geographyTree = data ? { lgas: data.lgas, wards: data.wards } : null;
+    } else if (territory?.state) {
+      // LOOP 3 HARDENING (live browser acceptance finding) -- a state-level
+      // office (Governor, President) carries territory.state but NO
+      // territory.constituency at all (proposeSetTerritory() never asks
+      // for one -- see geography/write.js's own header), the EXACT SAME
+      // shape OrganisationSection.jsx's InviteWizard already had to learn
+      // to handle (see that file's own "FIX (production verification
+      // pass)" comment). This call site had the identical gap: for any
+      // ward/LGA-level invitation into a state-level campaign,
+      // geographyTree stayed null forever, which
+      // proposeAssignResponsibility()'s WARD branch (geography/write.js)
+      // then correctly and honestly refuses as NO_GEOGRAPHY_DATA_IMPORTED
+      // -- reproduced live accepting a Somolu-LGA-scoped Ward Coordinator
+      // invitation on a real Governor campaign. Same canonical
+      // geography_lgas/geography_wards read TerritoryExplorer/InviteWizard
+      // already use, reached the same way they reach it -- never a second
+      // geography source.
+      const { data } = await getStateTerritory({ client, stateCode: territory.state });
       geographyTree = data ? { lgas: data.lgas, wards: data.wards } : null;
     }
   } else if (level === "polling_unit") {
@@ -170,7 +190,13 @@ export async function acceptInvitation({ client, token, displayName }) {
     return { accepted: true, campaignId, error: `membership and roster entry created, but the responsibility assignment failed: ${respResult.error}` };
   }
 
-  return { accepted: true, campaignId, error: null };
+  // GATE A — the caller (AcceptInvite.jsx) can now read back exactly what
+  // was granted, straight from this SERVER-CONFIRMED write (respResult),
+  // never reconstructed from the invitation's own claimed fields alone.
+  // This is additive: every existing consumer that only ever destructured
+  // {accepted, campaignId, error} is unaffected.
+  return { accepted: true, campaignId, error: null,
+    responsibility: { responsibilityRole, level, geographyRef } };
 }
 
 export default { createInvitation, revokeInvitation, acceptInvitation };

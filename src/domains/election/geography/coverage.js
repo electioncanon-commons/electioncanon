@@ -140,6 +140,29 @@ export async function getUncoveredTerritory({ client, campaignId, territory = nu
  *  separate from getWardCoverage() (which returns an array shaped for
  *  display) since a map is what a pure fold-consuming function needs to
  *  index by ward id in O(1), not re-scan a list per ward. */
+/** Polling-unit coverage for every PU the caller supplies — the missing
+ *  sibling of getLgaCoverage()/getWardCoverage(), same shape, same bounded
+ *  `.in()` query against responsibility_slots, added for Gate A's Ward
+ *  Coordinator / Polling-Unit Agent scoped views (which need real per-PU
+ *  responsibility status, not just the aggregate PU-total this module's own
+ *  header already explains is deliberately excluded from ROLL-UP coverage).
+ *  Never called with an unbounded PU list — every caller supplies the PUs
+ *  of exactly one already-resolved ward. */
+export async function getPollingUnitCoverage({ client, campaignId, pollingUnits = [] } = {}) {
+  if (pollingUnits.length === 0) return { data: [], error: null };
+  const { data, error } = await client
+    .from("responsibility_slots")
+    .select("geography_ref, current_person")
+    .eq("campaign_id", campaignId).eq("level", "polling_unit").in("geography_ref", pollingUnits.map((p) => p.id));
+  if (error) return { data: null, error };
+  const byRef = new Map((data ?? []).map((r) => [r.geography_ref, r.current_person]));
+  return {
+    data: pollingUnits.map((p) => ({ id: p.id, code: p.code, name: p.name ?? null,
+      currentPerson: byRef.get(p.id) ?? null, covered: Boolean(byRef.get(p.id)) })),
+    error: null,
+  };
+}
+
 export async function getWardResponsibilityMap({ client, campaignId, wardIds = [] } = {}) {
   if (wardIds.length === 0) return { data: {}, error: null };
   const { data, error } = await client
@@ -152,4 +175,7 @@ export async function getWardResponsibilityMap({ client, campaignId, wardIds = [
   return { data: map, error: null };
 }
 
-export default { getConstituencyCoverage, getLgaCoverage, getWardCoverage, getUncoveredTerritory, getWardResponsibilityMap };
+export default {
+  getConstituencyCoverage, getLgaCoverage, getWardCoverage, getPollingUnitCoverage,
+  getUncoveredTerritory, getWardResponsibilityMap,
+};
