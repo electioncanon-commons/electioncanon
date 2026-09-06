@@ -11,7 +11,15 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../lib/supabase.js";
 import * as assetsApi from "../../domains/election/design/assets.js";
 import { TEMPLATE_LIST, TEMPLATES } from "../../domains/election/design/templates.js";
+import CommunicationsPanel from "./Communications.jsx";
 import { Label, Panel, DemoTag, friendlyError, UI, IVORY, MUTED, TEAL, AMBER, PINK, SURFACE, BORDER, BLACK, inputStyle } from "./shared.jsx";
+
+// GATE A.5.1 — an in-page tab, NOT a new top-level navigation item (see the
+// Gate A.5 architecture report's recommended UI boundary: Campaign Studio
+// stays the creative workspace; Communications is its work-item list,
+// reachable from here rather than promoted to Election.jsx's own nav until
+// real usage justifies it).
+const STUDIO_TAB = Object.freeze({ DESIGN: "design", COMMUNICATIONS: "communications" });
 
 const COLOUR_TOKEN = { primary: TEAL, secondary: PINK, accent: AMBER, surface: SURFACE };
 
@@ -140,6 +148,7 @@ function Editor({ asset, onChange, onSave, onExport, busy, error }) {
 }
 
 export default function CampaignStudioSection({ campaignId, userId, workspaceName }) {
+  const [tab, setTab] = useState(STUDIO_TAB.DESIGN);
   const [assets, setAssets] = useState([]);
   const [editing, setEditing] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -176,35 +185,54 @@ export default function CampaignStudioSection({ campaignId, userId, workspaceNam
     await load();
   };
 
+  const tabBtn = (id, label) => (
+    <button onClick={() => setTab(id)}
+      style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase",
+        padding: "9px 16px", border: "none", borderBottom: tab === id ? `2px solid ${TEAL}` : `2px solid ${BORDER}`,
+        background: "transparent", color: tab === id ? IVORY : MUTED, cursor: "pointer" }}>
+      {label}
+    </button>
+  );
+
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(340px,1fr))", gap: 18 }}>
-      <div>
-        <Label>Templates</Label>
-        <Panel>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10 }}>
-            {TEMPLATE_LIST.map((t) => <TemplateCard key={t.id} template={t} onSelect={onSelectTemplate} />)}
+    <div>
+      <div style={{ display: "flex", gap: 4, marginBottom: 18 }}>
+        {tabBtn(STUDIO_TAB.DESIGN, "Design")}
+        {tabBtn(STUDIO_TAB.COMMUNICATIONS, "Communications")}
+      </div>
+      {tab === STUDIO_TAB.COMMUNICATIONS ? (
+        <CommunicationsPanel campaignId={campaignId} userId={userId} studioAssets={assets} />
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(340px,1fr))", gap: 18 }}>
+          <div>
+            <Label>Templates</Label>
+            <Panel>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 10 }}>
+                {TEMPLATE_LIST.map((t) => <TemplateCard key={t.id} template={t} onSelect={onSelectTemplate} />)}
+              </div>
+            </Panel>
+            <div style={{ marginTop: 18 }}>
+              <Label>Your assets</Label>
+              <Panel>
+                {assets.length === 0
+                  ? <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>No assets yet — choose a template to start one.</div>
+                  : assets.map((a) => <AssetRow key={a.id} asset={a} onOpen={setEditing} />)}
+              </Panel>
+            </div>
           </div>
-        </Panel>
-        <div style={{ marginTop: 18 }}>
-          <Label>Your assets</Label>
-          <Panel>
-            {assets.length === 0
-              ? <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>No assets yet — choose a template to start one.</div>
-              : assets.map((a) => <AssetRow key={a.id} asset={a} onOpen={setEditing} />)}
-          </Panel>
+          <div>
+            <Label>Editor</Label>
+            {editing ? (
+              <Editor asset={editing} onChange={setEditing} onSave={onSave}
+                onExport={() => exportPng(editing, TEMPLATES[editing.template_id])} busy={busy} error={error} />
+            ) : (
+              <Panel>
+                <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>Choose a template or open a saved asset to start editing.</div>
+              </Panel>
+            )}
+          </div>
         </div>
-      </div>
-      <div>
-        <Label>Editor</Label>
-        {editing ? (
-          <Editor asset={editing} onChange={setEditing} onSave={onSave}
-            onExport={() => exportPng(editing, TEMPLATES[editing.template_id])} busy={busy} error={error} />
-        ) : (
-          <Panel>
-            <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>Choose a template or open a saved asset to start editing.</div>
-          </Panel>
-        )}
-      </div>
+      )}
     </div>
   );
 }
