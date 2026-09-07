@@ -19,7 +19,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../lib/supabase.js";
 import * as commsApi from "../../domains/election/communications/api.js";
-import { Label, Panel, StatusChip, friendlyError, UI, IVORY, MUTED, TEAL, AMBER, PINK, BORDER, BLACK, inputStyle } from "./shared.jsx";
+import { EXPORT_FORMAT_LIST, exportApprovedVariant } from "../../domains/election/communications/export.js";
+import { Label, Panel, StatusChip, friendlyError, downloadBlob, UI, IVORY, MUTED, TEAL, AMBER, PINK, BORDER, BLACK, inputStyle } from "./shared.jsx";
 
 // User-facing labels for language_variants.status — read directly from
 // the column, never inferred from reviews/approvals rows (Gate A.5.2's
@@ -82,6 +83,7 @@ function VariantRow({ variant, reviews, approvals, namesByPerson, userId, isOwne
   const [editText, setEditText] = useState(variant.text);
   const [reviewNotes, setReviewNotes] = useState("");
   const [revokeReason, setRevokeReason] = useState("");
+  const [exportFormat, setExportFormat] = useState(EXPORT_FORMAT_LIST[0].id);
   const [busy, setBusy] = useState(false);
 
   const isDrafter = variant.created_by === userId;
@@ -92,6 +94,11 @@ function VariantRow({ variant, reviews, approvals, namesByPerson, userId, isOwne
   const canApprove = variant.status === commsApi.VARIANT_STATUS.IN_REVIEW && isOwnerOrManager && !isDrafter
     && latestReview?.status === "approved" && latestReview?.reviewer_id !== userId;
   const canRevoke = variant.status === commsApi.VARIANT_STATUS.APPROVED && isOwnerOrManager;
+  // GATE A.5.3 — a UI courtesy only, exactly like every other action gate
+  // on this row: the real check is onAction("export", …) re-reading this
+  // variant's CURRENT status immediately before rendering (see
+  // CommunicationDetail.onVariantAction below), never this stale prop.
+  const canExport = variant.status === commsApi.VARIANT_STATUS.APPROVED;
 
   const run = async (fn) => { setBusy(true); await fn(); setBusy(false); };
 
@@ -135,6 +142,18 @@ function VariantRow({ variant, reviews, approvals, namesByPerson, userId, isOwne
             <button disabled={busy || !revokeReason.trim()} style={smallBtn(PINK)}
               onClick={() => run(async () => { await onAction("revoke", { reason: revokeReason }); setRevokeReason(""); })}>
               Revoke approval
+            </button>
+          </>
+        )}
+        {canExport && (
+          <>
+            <select value={exportFormat} onChange={(e) => setExportFormat(e.target.value)}
+              aria-label={`${languageLabel} export format`} style={{ ...inputStyle, width: 140 }}>
+              {EXPORT_FORMAT_LIST.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+            </select>
+            <button disabled={busy} style={smallBtn(TEAL)}
+              onClick={() => run(() => onAction("export", { format: exportFormat }))}>
+              Export
             </button>
           </>
         )}
@@ -252,8 +271,36 @@ function CommunicationDetail({ communication, studioAssets, userId, isOwnerOrMan
     onCommunicationUpdated?.(updated);
   };
 
+  // GATE A.5.3 — export is deliberately NOT one of the RPC-shaped branches
+  // below: it never calls a Supabase RPC, never produces a {variant,error}
+  // shape, and — the actual governance point — it re-reads this variant's
+  // CURRENT status via a fresh listLanguageVariants() call immediately
+  // before exportApprovedVariant() runs, rather than trusting whatever
+  // `variants` this component already had in state (which could be
+  // arbitrarily stale, e.g. if an owner/manager revoked approval from
+  // another tab moments earlier). A revoked approval is therefore refused
+  // here even if the row on screen still visually says "Approved".
+  const onExportVariant = async (variantId, format) => {
+    const { variants: freshVariants, error: refreshError } = await commsApi.listLanguageVariants({ client: supabase, communicationId: communication.id });
+    if (refreshError) { setError(refreshError); return; }
+    const fresh = freshVariants.find((v) => v.id === variantId);
+    if (!fresh) { setError("This language variant no longer exists."); return; }
+    const { blob, filename, error: exportError } = await exportApprovedVariant({
+      communicationTitle: communication.title,
+      variantStatus: fresh.status,
+      variantLanguage: fresh.language,
+      variantText: fresh.text,
+      format,
+      createCanvas: () => document.createElement("canvas"),
+    });
+    if (exportError) { setError(exportError); return; }
+    downloadBlob(blob, filename);
+    setVariants(freshVariants);
+  };
+
   const onVariantAction = async (variantId, action, payload = {}) => {
     setError(null);
+    if (action === "export") { await onExportVariant(variantId, payload.format); return; }
     let result;
     if (action === "edit") result = await commsApi.updateLanguageVariant({ client: supabase, variantId, text: payload.text });
     else if (action === "submit") result = await commsApi.submitLanguageVariantForReview({ client: supabase, variantId });

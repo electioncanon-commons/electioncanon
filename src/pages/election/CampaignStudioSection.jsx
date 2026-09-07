@@ -5,14 +5,22 @@
 // campaign_studio_assets) -> client-side PNG export (canvas, no backend
 // export step, no image-generation engine — text/colour only, and this
 // screen never claims otherwise). See src/domains/election/design/.
+//
+// GATE A.5.3 — the actual canvas-drawing logic (previously inline here as
+// exportPng()'s body) now lives in design/render.js, shared with the
+// Communications export pipeline (see communications/export.js). This
+// file's own exportPng() is unchanged in behavior: same inputs, same
+// pixels, same download — it just calls the shared renderer instead of
+// duplicating it.
 // ============================================================
 
 import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../lib/supabase.js";
 import * as assetsApi from "../../domains/election/design/assets.js";
 import { TEMPLATE_LIST, TEMPLATES } from "../../domains/election/design/templates.js";
+import { renderTemplateToCanvas, canvasToPngBlob } from "../../domains/election/design/render.js";
 import CommunicationsPanel from "./Communications.jsx";
-import { Label, Panel, DemoTag, friendlyError, UI, IVORY, MUTED, TEAL, AMBER, PINK, SURFACE, BORDER, BLACK, inputStyle } from "./shared.jsx";
+import { Label, Panel, DemoTag, friendlyError, downloadBlob, UI, IVORY, MUTED, TEAL, AMBER, PINK, BORDER, BLACK, inputStyle } from "./shared.jsx";
 
 // GATE A.5.1 — an in-page tab, NOT a new top-level navigation item (see the
 // Gate A.5 architecture report's recommended UI boundary: Campaign Studio
@@ -20,8 +28,6 @@ import { Label, Panel, DemoTag, friendlyError, UI, IVORY, MUTED, TEAL, AMBER, PI
 // reachable from here rather than promoted to Election.jsx's own nav until
 // real usage justifies it).
 const STUDIO_TAB = Object.freeze({ DESIGN: "design", COMMUNICATIONS: "communications" });
-
-const COLOUR_TOKEN = { primary: TEAL, secondary: PINK, accent: AMBER, surface: SURFACE };
 
 function TemplateCard({ template, onSelect }) {
   return (
@@ -49,62 +55,24 @@ function AssetRow({ asset, onOpen }) {
 }
 
 /** Renders the asset's current content onto an offscreen canvas and triggers
- *  a PNG download — text/colour only, no image-generation engine. */
-function exportPng(asset, template) {
+ *  a PNG download — text/colour only, no image-generation engine. Drawing
+ *  logic lives in design/render.js (Gate A.5.3 extraction); this function
+ *  is unchanged in behavior from before that extraction. */
+async function exportPng(asset, template) {
   const { width, height } = template.dimensions;
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height ?? 630;
-  const ctx = canvas.getContext("2d");
-  ctx.fillStyle = COLOUR_TOKEN[template.background.token] ?? TEAL;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  ctx.fillStyle = BLACK;
-  ctx.textBaseline = "top";
-  let y = canvas.height * 0.12;
-  const marginX = canvas.width * 0.08;
-  const maxWidth = canvas.width * 0.84;
+  renderTemplateToCanvas({
+    canvas, template,
+    textBySlot: asset.content?.text ?? {},
+    identity: asset.content?.identity ?? {},
+  });
 
-  const wrapText = (text, font, maxW) => {
-    ctx.font = font;
-    const words = String(text ?? "").split(/\s+/).filter(Boolean);
-    const lines = [];
-    let line = "";
-    for (const word of words) {
-      const test = line ? `${line} ${word}` : word;
-      if (ctx.measureText(test).width > maxW && line) { lines.push(line); line = word; }
-      else line = test;
-    }
-    if (line) lines.push(line);
-    return lines;
-  };
-
-  for (const slot of template.textSlots) {
-    const value = asset.content?.text?.[slot.id];
-    if (!value) continue;
-    const isHeadline = slot.id === "headline";
-    const font = isHeadline ? `700 ${Math.round(canvas.width * 0.055)}px sans-serif` : `400 ${Math.round(canvas.width * 0.03)}px sans-serif`;
-    const lines = wrapText(value, font, maxWidth);
-    ctx.font = font;
-    for (const line of lines) {
-      ctx.fillText(line, marginX, y);
-      y += Math.round(canvas.width * (isHeadline ? 0.065 : 0.04));
-    }
-    y += canvas.width * 0.02;
-  }
-
-  if (asset.content?.identity?.campaignName) {
-    ctx.font = `700 ${Math.round(canvas.width * 0.024)}px sans-serif`;
-    ctx.fillText(asset.content.identity.campaignName, marginX, canvas.height - canvas.width * 0.08);
-  }
-
-  canvas.toBlob((blob) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = `${asset.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.png`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, "image/png");
+  const blob = await canvasToPngBlob(canvas);
+  if (!blob) return;
+  downloadBlob(blob, `${asset.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.png`);
 }
 
 function Editor({ asset, onChange, onSave, onExport, busy, error }) {

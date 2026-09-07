@@ -96,6 +96,22 @@ export function friendlyError(raw) {
     : text;
 }
 
+// GATE A.5.3 — the DOM-triggering half of PNG export (createObjectURL /
+// anchor-click / revokeObjectURL). Lives here, at the page layer, rather
+// than in domains/election/design/render.js, because src/domains/election/
+// is a structurally-enforced DOM-free boundary (see that file's own
+// header) — this is the one place in the export pipeline allowed to touch
+// `document`/`URL` directly. Shared by both Campaign Studio's own asset
+// export (CampaignStudioSection.jsx) and Communications export
+// (Communications.jsx) so the sequence is never duplicated.
+export function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 export function Label({ children }) {
   return (
     <div style={{ marginBottom: 10 }}>
