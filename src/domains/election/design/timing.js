@@ -53,4 +53,66 @@ export function resolveProgress(frameIndex, totalFrames) {
   return frame / (total - 1);
 }
 
-export default { easeOutCubic, resolveProgress };
+// ============================================================
+// GATE A.5.5.3 — REAL-TIME <-> DETERMINISTIC-FRAME BRIDGE
+//
+// The page layer is allowed to be real-time and nondeterministic (a
+// requestAnimationFrame loop measuring actual elapsed milliseconds); the
+// domain renderer (renderMotionFrameToCanvas()) must never be. These two
+// functions are the ONLY place elapsed real time is ever converted into a
+// frameIndex — everything downstream of that conversion (resolveProgress,
+// easeOutCubic, the renderer itself) remains exactly as deterministic as
+// before. Still pure: given the same arguments, always the same result;
+// still generic — no template/payload/canvas knowledge, same as the rest
+// of this file.
+// ============================================================
+
+/** How many discrete frames a `durationMs`-long animation at `fps` frames
+ *  per second has. Always at least 1 — there is no such thing as a
+ *  zero-frame animation, and a degenerate/invalid input (non-finite,
+ *  zero, or negative `durationMs`/`fps`) safely resolves to 1 (a single,
+ *  settled frame) rather than throwing or returning NaN. Deterministic:
+ *  a pure function of its two numeric arguments. */
+export function deriveTotalFrames(durationMs, fps) {
+  const ms = Number(durationMs);
+  const rate = Number(fps);
+  if (!Number.isFinite(ms) || !Number.isFinite(rate) || ms <= 0 || rate <= 0) return 1;
+  return Math.max(1, Math.round((ms / 1000) * rate));
+}
+
+/** Converts a real (page-layer-measured) `elapsedMs` into a deterministic
+ *  `frameIndex` in `0..totalFrames-1` — the one bridge point between
+ *  nondeterministic wall-clock time and this system's otherwise fully
+ *  deterministic rendering. `totalFrames <= 1` always resolves to frame
+ *  `0` (the only frame that exists). Otherwise: `loop === false` clamps
+ *  at the final frame once `elapsedMs >= durationMs` (an animation that
+ *  has finished stays finished, it does not run backwards or repeat);
+ *  `loop === true` wraps deterministically (elapsed time past one full
+ *  duration re-enters at the start), including for a negative `elapsedMs`
+ *  (defensive against clock skew — never returns a negative or
+ *  out-of-range index). A non-finite/invalid `durationMs` or `elapsedMs`
+ *  is treated as "no time has meaningfully elapsed yet": frame `0` when
+ *  looping, the final frame when not — never a crash, never NaN. */
+export function frameIndexForElapsed(elapsedMs, durationMs, totalFrames, loop) {
+  const total = Math.max(1, Math.floor(Number(totalFrames)) || 1);
+  if (total <= 1) return 0;
+
+  const duration = Number(durationMs);
+  const elapsed = Number(elapsedMs);
+  if (!Number.isFinite(duration) || duration <= 0 || !Number.isFinite(elapsed)) {
+    return loop ? 0 : total - 1;
+  }
+
+  const rawProgress = elapsed / duration;
+  let progress;
+  if (loop) {
+    progress = rawProgress % 1;
+    if (progress < 0) progress += 1;
+  } else {
+    progress = Math.min(Math.max(rawProgress, 0), 1);
+  }
+
+  return Math.min(Math.max(Math.floor(progress * (total - 1)), 0), total - 1);
+}
+
+export default { easeOutCubic, resolveProgress, deriveTotalFrames, frameIndexForElapsed };

@@ -1,18 +1,24 @@
 // ============================================================
-// ELECTIONCANON — GATE A.5.5.2: shared deterministic timing utility
+// ELECTIONCANON — GATE A.5.5.2/A.5.5.3: shared deterministic timing utility
 //
-// Exercises design/timing.js (easeOutCubic, resolveProgress) in complete
-// isolation — no template, no payload, no canvas, no render.js import at
-// all in most of this file — plus one small cross-check proving
-// design/render.js's motion renderer is actually WIRED to these exact
-// exports (not a leftover local copy) rather than merely re-implementing
-// the same formula twice by coincidence.
+// Exercises design/timing.js (easeOutCubic, resolveProgress,
+// deriveTotalFrames, frameIndexForElapsed) in complete isolation — no
+// template, no payload, no canvas, no render.js import at all in most of
+// this file — plus one small cross-check proving design/render.js's
+// motion renderer is actually WIRED to these exact exports (not a
+// leftover local copy) rather than merely re-implementing the same
+// formula twice by coincidence.
+//
+// deriveTotalFrames()/frameIndexForElapsed() (Gate A.5.5.3) are the ONLY
+// bridge between real, page-layer-measured elapsed time and this
+// system's otherwise fully deterministic rendering — see this file's own
+// header comment in design/timing.js.
 // ============================================================
 
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { join } from "path";
-import { easeOutCubic, resolveProgress } from "../src/domains/election/design/timing.js";
+import { easeOutCubic, resolveProgress, deriveTotalFrames, frameIndexForElapsed } from "../src/domains/election/design/timing.js";
 
 let pass = 0, fail = 0;
 const ok = (n, c) => { if (c) { pass++; console.log(`  ok   ${n}`); } else { fail++; console.log(`  FAIL ${n}`); } };
@@ -107,6 +113,76 @@ console.log("\n6 — moving this math into timing.js did not change any existing
   // identical leftover local copy.
   const expectedAlpha = easeOutCubic(resolveProgress(5, 11));
   ok("6. render.js's rendered fade alpha at frame 5/11 equals timing.js's own easeOutCubic(resolveProgress(5,11)) exactly — render.js is genuinely wired to the shared module", renderedAlpha === expectedAlpha);
+}
+
+// ============================================================
+console.log("\n7 — deriveTotalFrames() correctness and bounds");
+// ============================================================
+{
+  ok("7a. a typical duration/fps pair resolves to the exact expected integer frame count", deriveTotalFrames(1500, 30) === 45);
+  ok("7b. the result is always an integer, never a fractional frame count", deriveTotalFrames(1000, 24) === Math.round(deriveTotalFrames(1000, 24)));
+  ok("7c. always at least 1, never 0", deriveTotalFrames(1, 1) >= 1);
+  ok("7d. a zero durationMs never throws and resolves to 1", deriveTotalFrames(0, 30) === 1);
+  ok("7e. a negative durationMs never throws and resolves to 1", deriveTotalFrames(-500, 30) === 1);
+  ok("7f. a zero or negative fps never throws and resolves to 1", deriveTotalFrames(1500, 0) === 1 && deriveTotalFrames(1500, -30) === 1);
+  ok("7g. a non-finite durationMs/fps never throws and resolves to 1", deriveTotalFrames(NaN, 30) === 1 && deriveTotalFrames(1500, Infinity) === 1);
+  ok("7h. deterministic — the same inputs always return the same value", deriveTotalFrames(1500, 30) === deriveTotalFrames(1500, 30));
+}
+
+// ============================================================
+console.log("\n8 — frameIndexForElapsed(): loop=false clamps correctly");
+// ============================================================
+{
+  const total = deriveTotalFrames(1000, 30); // 30 frames
+  ok("8a. elapsed 0 resolves to frame 0", frameIndexForElapsed(0, 1000, total, false) === 0);
+  ok("8b. elapsed exactly at the duration resolves to the FINAL frame", frameIndexForElapsed(1000, 1000, total, false) === total - 1);
+  ok("8c. elapsed well past the duration stays clamped at the final frame, never beyond", frameIndexForElapsed(50000, 1000, total, false) === total - 1);
+  ok("8d. a midpoint elapsed resolves to roughly the midpoint frame", frameIndexForElapsed(500, 1000, total, false) === Math.floor(0.5 * (total - 1)));
+  ok("8e. a negative elapsed clamps to frame 0, never negative", frameIndexForElapsed(-200, 1000, total, false) === 0);
+}
+
+// ============================================================
+console.log("\n9 — frameIndexForElapsed(): loop=true wraps correctly");
+// ============================================================
+{
+  const total = deriveTotalFrames(1000, 30);
+  ok("9a. elapsed exactly one full duration wraps back to frame 0, not the final frame", frameIndexForElapsed(1000, 1000, total, true) === 0);
+  ok("9b. elapsed 1.5x the duration wraps to roughly the midpoint frame, not clamped at the end", frameIndexForElapsed(1500, 1000, total, true) === Math.floor(0.5 * (total - 1)));
+  ok("9c. elapsed many multiples of the duration still wraps into range, never grows unbounded", (() => { const f = frameIndexForElapsed(1000 * 7.25, 1000, total, true); return f >= 0 && f < total; })());
+  ok("9d. a negative elapsed still wraps into a valid, non-negative frame (defensive against clock skew)", (() => { const f = frameIndexForElapsed(-250, 1000, total, true); return f >= 0 && f < total; })());
+  ok("9e. loop=true and loop=false genuinely diverge past one full duration (sanity check the two modes are actually different)", frameIndexForElapsed(1000, 1000, total, true) !== frameIndexForElapsed(1000, 1000, total, false));
+}
+
+// ============================================================
+console.log("\n10 — frameIndexForElapsed(): degenerate/single-frame cases are safe");
+// ============================================================
+{
+  ok("10a. totalFrames === 1 always returns frame 0, regardless of elapsed or loop", frameIndexForElapsed(0, 1000, 1, false) === 0 && frameIndexForElapsed(5000, 1000, 1, true) === 0);
+  ok("10b. totalFrames <= 0 never throws or divides by zero — resolves to frame 0", frameIndexForElapsed(0, 1000, 0, false) === 0 && Number.isFinite(frameIndexForElapsed(0, 1000, -3, true)));
+  ok("10c. a zero/negative durationMs never throws — resolves to a safe, in-range frame", (() => { const f = frameIndexForElapsed(500, 0, 30, false); return Number.isFinite(f) && f >= 0 && f < 30; })());
+  ok("10d. a NaN durationMs or elapsedMs never throws — resolves to a safe, in-range frame", (() => {
+    const a = frameIndexForElapsed(NaN, 1000, 30, false);
+    const b = frameIndexForElapsed(500, NaN, 30, true);
+    return Number.isFinite(a) && a >= 0 && a < 30 && Number.isFinite(b) && b >= 0 && b < 30;
+  })());
+  ok("10e. never returns an index outside 0..totalFrames-1 across a wide sweep of inputs", (() => {
+    const total = 12;
+    const samples = [-9999, -1000, -1, 0, 1, 250, 999, 1000, 1001, 5000, 50000];
+    return samples.every((e) => {
+      const a = frameIndexForElapsed(e, 1000, total, false);
+      const b = frameIndexForElapsed(e, 1000, total, true);
+      return a >= 0 && a < total && b >= 0 && b < total;
+    });
+  })());
+}
+
+// ============================================================
+console.log("\n11 — timing functions remain deterministic (repeat-call proof)");
+// ============================================================
+{
+  const total = deriveTotalFrames(1500, 24);
+  ok("11a. deriveTotalFrames is deterministic", deriveTotalFrames(1500, 24) === total);
+  ok("11b. frameIndexForElapsed is deterministic across repeated identical calls", frameIndexForElapsed(700, 1500, total, false) === frameIndexForElapsed(700, 1500, total, false) && frameIndexForElapsed(700, 1500, total, true) === frameIndexForElapsed(700, 1500, total, true));
 }
 
 // ============================================================

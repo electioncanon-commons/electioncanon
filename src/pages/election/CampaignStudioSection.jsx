@@ -38,6 +38,7 @@ import { TEMPLATE_LIST, TEMPLATES } from "../../domains/election/design/template
 import { renderTemplateToCanvas, canvasToPngBlob } from "../../domains/election/design/render.js";
 import { buildStudioCreativePayload, validateCreativePayload } from "../../domains/election/design/creative.js";
 import CommunicationsPanel from "./Communications.jsx";
+import MotionPreview from "./MotionPreview.jsx";
 import { Label, Panel, DemoTag, friendlyError, downloadBlob, ensureCreativeFontsReady, UI, IVORY, MUTED, TEAL, AMBER, PINK, BORDER, BLACK, inputStyle } from "./shared.jsx";
 
 // GATE A.5.1 — an in-page tab, NOT a new top-level navigation item (see the
@@ -45,7 +46,14 @@ import { Label, Panel, DemoTag, friendlyError, downloadBlob, ensureCreativeFonts
 // stays the creative workspace; Communications is its work-item list,
 // reachable from here rather than promoted to Election.jsx's own nav until
 // real usage justifies it).
-const STUDIO_TAB = Object.freeze({ DESIGN: "design", COMMUNICATIONS: "communications" });
+//
+// GATE A.5.5.3 — PREVIEW is the same "in-page tab, not top-level nav"
+// mechanism, added for the same reason: an ephemeral motion-preview
+// demonstration surface for the 3 approved CREATIVE_TEMPLATES families
+// (see MotionPreview.jsx's own header) — never a persisted asset flow,
+// never touching assetsApi, completely separate from the Design tab's
+// own legacy-TEMPLATES Editor above.
+const STUDIO_TAB = Object.freeze({ DESIGN: "design", COMMUNICATIONS: "communications", PREVIEW: "preview" });
 
 function TemplateCard({ template, onSelect }) {
   return (
@@ -191,9 +199,12 @@ export default function CampaignStudioSection({ campaignId, userId, workspaceNam
       <div style={{ display: "flex", gap: 4, marginBottom: 18 }}>
         {tabBtn(STUDIO_TAB.DESIGN, "Design")}
         {tabBtn(STUDIO_TAB.COMMUNICATIONS, "Communications")}
+        {tabBtn(STUDIO_TAB.PREVIEW, "Motion Preview")}
       </div>
       {tab === STUDIO_TAB.COMMUNICATIONS ? (
         <CommunicationsPanel campaignId={campaignId} userId={userId} studioAssets={assets} />
+      ) : tab === STUDIO_TAB.PREVIEW ? (
+        <MotionPreview />
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(340px,1fr))", gap: 18 }}>
           <div>
