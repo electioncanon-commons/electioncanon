@@ -274,18 +274,26 @@ console.log("\n13 — identity.brand remains opt-in and preset-independent");
 }
 
 // ============================================================
-console.log("\n14 — static render behavior has not changed (explicit pre/post-extraction equivalence)");
+console.log("\n14 — static render behavior matches the CURRENT deterministic baseline (explicit equivalence, updated for Gate A.6.7)");
 // ============================================================
 {
-  // Captured from renderTemplateToCanvas() using this SAME fake-canvas
-  // harness BEFORE the Gate A.5.5.2 shared-layout extraction. These
-  // literal values are the regression baseline — not regenerated from
-  // the refactored code.
+  // GATE A.6.7 — these literal values were DELIBERATELY updated from the
+  // original Gate A.5.5.2 baseline: bounded vertical centering
+  // (computeContentStartY(), render.js) intentionally moved every one of
+  // these fixtures' start-Y position from the old fixed `canvasHeight *
+  // 0.12` anchor to a centered (or, for genuinely dense content, still
+  // 12%-anchored) position. This is the new, intentional regression
+  // baseline — a future accidental change to the layout math is still
+  // caught here, but this file no longer claims "nothing changed"; see
+  // section 15 below for the explicit before/after proof that this WAS a
+  // deliberate, bounded change, not a silent one. Still captured via this
+  // SAME fake-canvas harness, still literal, still never live-regenerated
+  // from the refactored code.
   const GOLDEN = {
-    FIX1_cta_full_with_brand: { fillRect: [[0, 0, 1080, 1080]], fillStyleHistory: ["#F5A623", "#0D0D0F"], fillText: [{ text: "Your campaign is too big", x: 86.4, y: 129.6, font: "900 59px 'Poppins', sans-serif" }, { text: "for WhatsApp.", x: 86.4, y: 199.6, font: "900 59px 'Poppins', sans-serif" }, { text: "Your campaign has people everywhere.", x: 86.4, y: 291.20000000000005, font: "400 32px 'Poppins', sans-serif" }, { text: "Prepare. Organize. Coordinate. Observe. Respond.", x: 86.4, y: 355.80000000000007, font: "400 32px 'Poppins', sans-serif" }, { text: "ElectionCanon", x: 86.4, y: 993.6, font: "400 26px 'Poppins', sans-serif" }] },
-    FIX2_statement_headline_only_no_brand: { fillRect: [[0, 0, 1080, 1350]], fillStyleHistory: ["#0A7F73", "#0D0D0F"], fillText: [{ text: "Turnout wins elections.", x: 86.4, y: 162, font: "900 59px 'Poppins', sans-serif" }] },
-    FIX3_legacy_ward_meeting_4slots: { fillRect: [[0, 0, 1080, 1350]], fillStyleHistory: ["#FF2E63", "#0D0D0F"], fillText: [{ text: "Ward 7", x: 86.4, y: 162, font: "400 32px 'Poppins', sans-serif" }, { text: "Saturday 10am", x: 86.4, y: 226.6, font: "400 32px 'Poppins', sans-serif" }, { text: "Community Hall", x: 86.4, y: 291.20000000000005, font: "400 32px 'Poppins', sans-serif" }, { text: "Bring your voter card and questions.", x: 86.4, y: 355.80000000000007, font: "400 32px 'Poppins', sans-serif" }] },
-    FIX4_long_wrapping_body: { fillRect: [[0, 0, 1080, 1080]], fillStyleHistory: ["#FF2E63", "#0D0D0F"], fillText: [{ text: "Announcement", x: 86.4, y: 129.6, font: "900 59px 'Poppins', sans-serif" }, { text: "word0 word1 word2 word3 word4 word5 word6 word7", x: 86.4, y: 221.2, font: "400 32px 'Poppins', sans-serif" }, { text: "word8 word9 word10 word11 word12 word13 word14", x: 86.4, y: 264.2, font: "400 32px 'Poppins', sans-serif" }, { text: "word15 word16 word17 word18 word19 word20 word21", x: 86.4, y: 307.2, font: "400 32px 'Poppins', sans-serif" }, { text: "word22 word23 word24 word25 word26 word27 word28", x: 86.4, y: 350.2, font: "400 32px 'Poppins', sans-serif" }, { text: "word29 word30 word31 word32 word33 word34 word35", x: 86.4, y: 393.2, font: "400 32px 'Poppins', sans-serif" }, { text: "word36 word37 word38 word39", x: 86.4, y: 436.2, font: "400 32px 'Poppins', sans-serif" }] },
+    FIX1_cta_full_with_brand: { fillRect: [[0, 0, 1080, 1080]], fillStyleHistory: ["#F5A623", "#0D0D0F"], fillText: [{ text: "Your campaign is too big", x: 86.4, y: 405.4, font: "900 59px 'Poppins', sans-serif" }, { text: "for WhatsApp.", x: 86.4, y: 475.4, font: "900 59px 'Poppins', sans-serif" }, { text: "Your campaign has people everywhere.", x: 86.4, y: 567, font: "400 32px 'Poppins', sans-serif" }, { text: "Prepare. Organize. Coordinate. Observe. Respond.", x: 86.4, y: 631.6, font: "400 32px 'Poppins', sans-serif" }, { text: "ElectionCanon", x: 86.4, y: 993.6, font: "400 26px 'Poppins', sans-serif" }] },
+    FIX2_statement_headline_only_no_brand: { fillRect: [[0, 0, 1080, 1350]], fillStyleHistory: ["#0A7F73", "#0D0D0F"], fillText: [{ text: "Turnout wins elections.", x: 86.4, y: 640, font: "900 59px 'Poppins', sans-serif" }] },
+    FIX3_legacy_ward_meeting_4slots: { fillRect: [[0, 0, 1080, 1350]], fillStyleHistory: ["#FF2E63", "#0D0D0F"], fillText: [{ text: "Ward 7", x: 86.4, y: 556.6, font: "400 32px 'Poppins', sans-serif" }, { text: "Saturday 10am", x: 86.4, y: 621.2, font: "400 32px 'Poppins', sans-serif" }, { text: "Community Hall", x: 86.4, y: 685.8000000000001, font: "400 32px 'Poppins', sans-serif" }, { text: "Bring your voter card and questions.", x: 86.4, y: 750.4000000000001, font: "400 32px 'Poppins', sans-serif" }] },
+    FIX4_long_wrapping_body: { fillRect: [[0, 0, 1080, 1080]], fillStyleHistory: ["#FF2E63", "#0D0D0F"], fillText: [{ text: "Announcement", x: 86.4, y: 365.2, font: "900 59px 'Poppins', sans-serif" }, { text: "word0 word1 word2 word3 word4 word5 word6 word7", x: 86.4, y: 456.8, font: "400 32px 'Poppins', sans-serif" }, { text: "word8 word9 word10 word11 word12 word13 word14", x: 86.4, y: 499.8, font: "400 32px 'Poppins', sans-serif" }, { text: "word15 word16 word17 word18 word19 word20 word21", x: 86.4, y: 542.8, font: "400 32px 'Poppins', sans-serif" }, { text: "word22 word23 word24 word25 word26 word27 word28", x: 86.4, y: 585.8, font: "400 32px 'Poppins', sans-serif" }, { text: "word29 word30 word31 word32 word33 word34 word35", x: 86.4, y: 628.8, font: "400 32px 'Poppins', sans-serif" }, { text: "word36 word37 word38 word39", x: 86.4, y: 671.8, font: "400 32px 'Poppins', sans-serif" }] },
   };
 
   function actual(template, payload, width, height) {
@@ -305,6 +313,101 @@ console.log("\n14 — static render behavior has not changed (explicit pre/post-
 
   const a4 = actual(CREATIVE_TEMPLATES[CREATIVE_FAMILY.ANNOUNCEMENT], { content: { headline: "Announcement", body: Array.from({ length: 40 }, (_, i) => `word${i}`).join(" ") }, visual: {}, identity: {} }, 1080, 1080);
   ok("14d. FIX4 (long wrapping body, many lines): identical to baseline — wrapping behavior via the extracted computeTextLayout() is unchanged", JSON.stringify(a4) === JSON.stringify(GOLDEN.FIX4_long_wrapping_body));
+}
+
+// ============================================================
+console.log("\n15 — Gate A.6.7: bounded vertical centering");
+// ============================================================
+{
+  const MIN_TOP_OF_HEIGHT = 0.12;
+
+  // 1 — sparse content (a single short headline line) is vertically
+  // centered: startY = (canvasHeight - lineHeight) / 2, not the old fixed
+  // 12%-of-height anchor.
+  {
+    const canvas = fakeCanvas(1080, 1350);
+    renderTemplateToCanvas({ canvas, template: STATEMENT_TEMPLATE, payload: { content: { headline: "Turnout wins elections." }, visual: {}, identity: {} } });
+    const headlineLineHeight = Math.round(1080 * 0.065);
+    const expectedCenteredY = (1350 - headlineLineHeight) / 2;
+    ok("15.1 sparse single-line content is vertically centered — startY matches (canvasHeight - blockHeight) / 2 exactly", canvas._calls.fillText[0].y === expectedCenteredY);
+    ok("15.1b sparse content's centered startY is well ABOVE the old fixed 12% anchor — this is a real, visible change, not a no-op", canvas._calls.fillText[0].y > 1350 * MIN_TOP_OF_HEIGHT);
+  }
+
+  // 2 — the calculated start position never rises above (i.e. never
+  // produces a y SMALLER than) the existing 12% minimum, across both a
+  // sparse and a dense fixture.
+  {
+    const sparseCanvas = fakeCanvas(1080, 1350);
+    renderTemplateToCanvas({ canvas: sparseCanvas, template: STATEMENT_TEMPLATE, payload: { content: { headline: "Hi" }, visual: {}, identity: {} } });
+    const denseCanvas = fakeCanvas(1080, 1080);
+    renderTemplateToCanvas({ canvas: denseCanvas, template: CTA_TEMPLATE, payload: { content: { headline: "H", body: Array.from({ length: 200 }, (_, i) => `w${i}`).join(" "), cta: "Go" }, visual: {}, identity: {} } });
+    ok("15.2 the sparse fixture's startY is >= the 12% minimum", sparseCanvas._calls.fillText[0].y >= 1350 * MIN_TOP_OF_HEIGHT - 1e-9);
+    ok("15.2b the dense fixture's startY is >= the 12% minimum", denseCanvas._calls.fillText[0].y >= 1080 * MIN_TOP_OF_HEIGHT - 1e-9);
+  }
+
+  // 3 — genuinely dense content (tall enough that centering would rise
+  // above the historical anchor) falls back to the EXACT original 12%
+  // anchor — dense content is never pushed off the top of the canvas.
+  {
+    const canvas = fakeCanvas(1080, 1080);
+    renderTemplateToCanvas({ canvas, template: CTA_TEMPLATE, payload: { content: { headline: "H", body: Array.from({ length: 200 }, (_, i) => `w${i}`).join(" "), cta: "Go" }, visual: {}, identity: {} } });
+    ok("15.3 dense content retains the EXACT original top anchor (canvasHeight * 0.12), byte-for-byte", canvas._calls.fillText[0].y === 1080 * MIN_TOP_OF_HEIGHT);
+    ok("15.3b confirms this fixture is genuinely dense (many lines), not a trivial/degenerate case", canvas._calls.fillText.length > 10);
+  }
+
+  // 4 — a MULTI-LINE single slot (one long headline that wraps into
+  // several lines) is centered based on the ACTUAL total wrapped block
+  // height, not a single-line assumption.
+  {
+    const canvas = fakeCanvas(1080, 1350);
+    const longHeadline = "This headline is long enough to wrap across several lines on a narrow canvas width";
+    renderTemplateToCanvas({ canvas, template: STATEMENT_TEMPLATE, payload: { content: { headline: longHeadline }, visual: {}, identity: {} } });
+    const n = canvas._calls.fillText.length;
+    ok("15.4 the long headline actually wrapped into multiple lines (a real multi-line fixture)", n > 1);
+    const headlineLineHeight = Math.round(1080 * 0.065);
+    const blockHeight = n * headlineLineHeight;
+    const expectedStartY = (1350 - blockHeight) / 2;
+    ok("15.4b the wrapped block's startY reflects its ACTUAL total height (all N lines), not a single-line estimate", canvas._calls.fillText[0].y === expectedStartY);
+  }
+
+  // 5 — an optional ABSENT slot contributes NO phantom height: a
+  // headline-only render centers around the headline's own height alone,
+  // not headline + a reserved-but-empty body slot.
+  {
+    const headlineOnly = fakeCanvas(1080, 1350);
+    renderTemplateToCanvas({ canvas: headlineOnly, template: STATEMENT_TEMPLATE, payload: { content: { headline: "Turnout wins elections.", body: null }, visual: {}, identity: {} } });
+    const headlineLineHeight = Math.round(1080 * 0.065);
+    const expectedHeadlineOnlyY = (1350 - headlineLineHeight) / 2;
+    ok("15.5 a present headline with an ABSENT optional body centers around the headline's own height alone — no phantom space reserved for the missing slot", headlineOnly._calls.fillText[0].y === expectedHeadlineOnlyY);
+  }
+
+  // 6 — with MULTIPLE present slots, the relative spacing BETWEEN slots
+  // (the existing per-slot trailing gap) is completely unaffected by
+  // where the whole block starts — centering shifts everything by the
+  // same constant offset, it never compresses or expands inter-slot gaps.
+  {
+    const canvas = fakeCanvas(1080, 1350);
+    renderTemplateToCanvas({ canvas, template: STATEMENT_TEMPLATE, payload: { content: { headline: "Turnout wins elections.", body: "Register today." }, visual: {}, identity: {} } });
+    const [headlineLine, bodyLine] = canvas._calls.fillText;
+    const headlineLineHeight = Math.round(1080 * 0.065);
+    const expectedGap = 1080 * 0.02;
+    ok("15.6 the existing per-slot trailing gap between the headline and the next slot is EXACTLY preserved, regardless of the block's new start position", Math.abs(bodyLine.y - (headlineLine.y + headlineLineHeight) - expectedGap) < 1e-9);
+  }
+
+  // 7 — identity.brand is drawn at its ORIGINAL, UNCHANGED bottom-anchored
+  // position, completely independent of the (now variable) content block
+  // start position — already implicitly proven by FIX1's own unchanged
+  // brand y (993.6) above; this makes the invariant explicit.
+  {
+    const sparse = fakeCanvas(1080, 1080);
+    renderTemplateToCanvas({ canvas: sparse, template: CTA_TEMPLATE, payload: { content: { headline: "Short" }, visual: {}, identity: { brand: "ElectionCanon" } } });
+    const dense = fakeCanvas(1080, 1080);
+    renderTemplateToCanvas({ canvas: dense, template: CTA_TEMPLATE, payload: { content: { headline: "H", body: Array.from({ length: 200 }, (_, i) => `w${i}`).join(" "), cta: "Go" }, visual: {}, identity: { brand: "ElectionCanon" } } });
+    const sparseBrand = sparse._calls.fillText.find((c) => c.text === "ElectionCanon");
+    const denseBrand = dense._calls.fillText.find((c) => c.text === "ElectionCanon");
+    const expectedBrandY = 1080 - 1080 * 0.08;
+    ok("15.7 identity.brand's y is the SAME fixed bottom-anchored position regardless of whether the content above it is sparse (centered) or dense (top-anchored)", sparseBrand.y === expectedBrandY && denseBrand.y === expectedBrandY && sparseBrand.y === denseBrand.y);
+  }
 }
 
 // ============================================================

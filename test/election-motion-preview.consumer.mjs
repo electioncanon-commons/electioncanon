@@ -1,5 +1,6 @@
 // ============================================================
 // ELECTIONCANON — GATE A.5.5.3: ephemeral motion preview architecture
+// (extended by GATE A.5.6: Golden Creative Export)
 //
 // MotionPreview.jsx is a React component with a real requestAnimationFrame
 // loop, canvas refs, and DOM-only browser APIs (window.matchMedia,
@@ -10,12 +11,14 @@
 // precedent (see test/election-creative-legacy-boundary.consumer.mjs's
 // "Renderer contract" section, which reads CampaignStudioSection.jsx's
 // own source to prove an architectural property), this file proves the
-// SOURCE-LEVEL architectural guarantees the A.5.5.3 approval required:
-// the governed pipeline is used exactly as specified, no motion math is
-// duplicated, only template-declared presets are exposed, and nothing
-// persists. Real lifecycle behavior (play/pause/cleanup/aspect ratio/
-// reduced motion) is manual/browser-acceptance territory — see this
-// file's own final section for that checklist, not asserted here.
+// SOURCE-LEVEL architectural guarantees the A.5.5.3/A.5.6 approvals
+// required: the governed pipeline is used exactly as specified, no motion
+// math is duplicated, only template-declared presets are exposed, export
+// reuses the same payload/validator/static-renderer/PNG pipeline the rest
+// of the codebase already proved, and nothing persists. Real lifecycle
+// behavior (play/pause/cleanup/aspect ratio/reduced motion/the downloaded
+// PNG's actual visual content) is manual/browser-acceptance territory —
+// see this file's own final section for that checklist, not asserted here.
 // ============================================================
 
 import { readFileSync } from "fs";
@@ -39,7 +42,7 @@ console.log("Governance — the existing governed pipeline is used, never a shor
   ok("G1. imports the EXISTING buildStudioCreativePayload() — never a hand-rolled/parallel payload builder", /import\s*\{[^}]*buildStudioCreativePayload[^}]*\}\s*from\s*["'].*design\/creative\.js["']/.test(previewSrc));
   ok("G2. imports the EXISTING validateCreativePayload()", /import\s*\{[^}]*validateCreativePayload[^}]*\}\s*from\s*["'].*design\/creative\.js["']/.test(previewSrc));
   ok("G3. imports the EXISTING validateMotionSpecification()", /import\s*\{[^}]*validateMotionSpecification[^}]*\}\s*from\s*["'].*design\/motion\.js["']/.test(previewSrc));
-  ok("G4. imports the EXISTING renderMotionFrameToCanvas() — never a second/local drawing implementation", /import\s*\{[^}]*renderMotionFrameToCanvas[^}]*\}\s*from\s*["'].*design\/render\.js["']/.test(previewSrc));
+  ok("G4. imports the EXISTING renderCompositionMotionFrameToCanvas() — never a second/local drawing implementation (Gate A.6.5: the motion path is now composition-aware, replacing the plain renderMotionFrameToCanvas() this file used before)", /import\s*\{[^}]*renderCompositionMotionFrameToCanvas[^}]*\}\s*from\s*["'].*design\/render\.js["']/.test(previewSrc));
   ok("G5. no `payload.meta`/`payload.raw`/`payload.source`/`payload.data` escape hatch appears anywhere in this file", !/payload\.(meta|raw|source|data)\b/.test(codeOnly));
   ok("G6. validateCreativePayload() is actually CALLED, not merely imported", /validateCreativePayload\(\{/.test(codeOnly));
   ok("G7. validateMotionSpecification() is actually CALLED, not merely imported", /validateMotionSpecification\(\{/.test(codeOnly));
@@ -99,8 +102,8 @@ console.log("\nFont readiness occurs before the first meaningful motion render")
 
   const onPreviewMotionBody = codeOnly.slice(codeOnly.indexOf("onPreviewMotion ="), codeOnly.indexOf("const setSlot"));
   const fontAwaitIndex = onPreviewMotionBody.indexOf("ensureCreativeFontsReady()");
-  const firstMotionRenderIndex = onPreviewMotionBody.indexOf("renderMotionFrameToCanvas(");
-  ok("F3. ensureCreativeFontsReady() is awaited, and its call appears BEFORE the first renderMotionFrameToCanvas() call in source order within the preview handler", fontAwaitIndex !== -1 && firstMotionRenderIndex !== -1 && fontAwaitIndex < firstMotionRenderIndex);
+  const firstMotionRenderIndex = onPreviewMotionBody.indexOf("renderCompositionMotionFrameToCanvas(");
+  ok("F3. ensureCreativeFontsReady() is awaited, and its call appears BEFORE the first renderCompositionMotionFrameToCanvas() call in source order within the preview handler", fontAwaitIndex !== -1 && firstMotionRenderIndex !== -1 && fontAwaitIndex < firstMotionRenderIndex);
   ok("F4. the font-readiness call is genuinely awaited, not fired-and-forgotten", /await\s+ensureCreativeFontsReady\(\)/.test(onPreviewMotionBody));
 }
 
@@ -159,13 +162,87 @@ console.log("\nExternal cancellation resets isPlaying (Gate A.5.5.3 fix)");
   })());
 }
 
+// ============================================================
+console.log("\nGolden Creative export (Gate A.5.6)");
+// ============================================================
+{
+  ok("X1. GOLDEN_FORMAT maps to the existing CREATIVE_FORMAT.PORTRAIT — never a new/invented format id", /const GOLDEN_FORMAT\s*=\s*CREATIVE_FORMAT\.PORTRAIT;/.test(codeOnly));
+  ok("X2. the shared preview/export canvas dimensions are exactly 1080x1350", /PREVIEW_DIMENSIONS\s*=\s*Object\.freeze\(\{\s*width:\s*1080,\s*height:\s*1350\s*\}\)/.test(codeOnly));
+
+  const exportStart = codeOnly.indexOf("onExportPng = useCallback");
+  const exportEnd = codeOnly.indexOf("const setSlot");
+  const exportBody = codeOnly.slice(exportStart, exportEnd);
+  ok("X3. onExportPng() exists as its own handler", exportStart !== -1 && exportEnd > exportStart);
+
+  ok("X4. export builds its payload through the SAME buildEphemeralPayload() the live preview uses — never a second/parallel payload builder", /buildEphemeralPayload\(/.test(exportBody));
+  ok("X5. export validates through the SAME validateCreativePayload() the live preview uses", /validateCreativePayload\(\{/.test(exportBody));
+
+  const validateIndex = exportBody.indexOf("validateCreativePayload({");
+  const canvasCreateIndex = exportBody.indexOf('document.createElement("canvas")');
+  ok("X6. validation happens BEFORE the export canvas is ever created", validateIndex !== -1 && canvasCreateIndex !== -1 && validateIndex < canvasCreateIndex);
+
+  const earlyReturnMatch = exportBody.match(/if\s*\(!validation\.valid\)\s*\{\s*setExportError\(validation\.error\);\s*return;\s*\}/);
+  const earlyReturnIndex = earlyReturnMatch ? exportBody.indexOf(earlyReturnMatch[0]) : -1;
+  ok("X7. a failed validation sets an export-specific error and RETURNS before canvas creation — no canvas, no render, no download on invalid content", earlyReturnIndex !== -1 && earlyReturnIndex < canvasCreateIndex);
+
+  const fontReadyIndex = exportBody.indexOf("ensureCreativeFontsReady()");
+  const staticRenderIndex = exportBody.indexOf("renderCompositionToCanvas(");
+  ok("X8. ensureCreativeFontsReady() is awaited BEFORE the export's own render call", /await\s+ensureCreativeFontsReady\(\)/.test(exportBody) && fontReadyIndex !== -1 && staticRenderIndex !== -1 && fontReadyIndex < staticRenderIndex);
+
+  ok("X9. export draws via the composition-aware STATIC renderCompositionToCanvas() — the settled composition, not a motion frame (Gate A.6.6: updated from the plain renderTemplateToCanvas() this file used before)", /renderCompositionToCanvas\(\{/.test(exportBody));
+  ok("X10. export NEVER calls renderCompositionMotionFrameToCanvas() — exporting a motion frame is explicitly out of scope for this gate", !/renderCompositionMotionFrameToCanvas\(/.test(exportBody));
+  ok("X10b. export validates the SAME composition the live preview uses (validateCreativeComposition), never a second/parallel composition validator", /validateCreativeComposition\(\{/.test(exportBody));
+
+  ok("X11. export encodes via the EXISTING canvasToPngBlob() — never a second PNG-encoding implementation", /canvasToPngBlob\(/.test(exportBody));
+  ok("X12. export downloads via the EXISTING downloadBlob() — never a second download mechanism", /downloadBlob\(/.test(exportBody));
+  ok("X13. canvasToPngBlob is imported from the existing design/render.js — not reimplemented locally", /import\s*\{[^}]*canvasToPngBlob[^}]*\}\s*from\s*["'].*design\/render\.js["']/.test(previewSrc));
+  ok("X14. downloadBlob is imported from the existing ./shared.jsx — not reimplemented locally", /import\s*\{[^}]*downloadBlob[^}]*\}\s*from\s*["']\.\/shared\.jsx["']/.test(previewSrc));
+
+  ok("X15. no second render-to-canvas implementation is introduced anywhere in this file — both renderers remain imports, never redefined", !/function\s+\w*[Rr]ender\w*Canvas\w*\s*\(/.test(codeOnly));
+
+  // X16/X17: no persistence path is introduced by this gate's addition. P1-P4
+  // above already scan this file's ENTIRE source (including onExportPng) for
+  // assetsApi/design/assets.js, the Supabase client, campaign_studio_assets,
+  // and campaignId/userId props — so this gate's own code is already
+  // re-verified by those existing, unchanged checks; no duplicate check
+  // needed here, this comment just makes that coverage explicit and traceable.
+  ok("X16. (documented via P1-P4 above) export introduces no assetsApi/Supabase/persistence reference of its own", !/assetsApi|design\/assets\.js|lib\/supabase\.js|campaign_studio_assets/.test(exportBody));
+}
+
+// ============================================================
+console.log("\nSelection indicator stays visible against every family's background (Gate A.6.3 fix)");
+// ============================================================
+{
+  ok("SELFIX1. the selected-element overlay border uses IVORY, not TEAL — TEAL collides with Statement/Hero's own background token (COLOUR_TOKEN.primary in render.js), making a teal selection indicator invisible on the default Golden Creative family", /selectedElementId === b\.role \? `2px solid \$\{IVORY\}` : /.test(codeOnly));
+  ok("SELFIX2. the overlay border is no longer TEAL for the selected state", !/selectedElementId === b\.role \? `2px solid \$\{TEAL\}` : /.test(codeOnly));
+}
+
+// ============================================================
+console.log("\nOne controlled property — alignment (Gate A.6.4)");
+// ============================================================
+{
+  ok("ALIGN1. imports TEXT_ALIGNMENT_LIST from the existing design/composition.js — never a hardcoded alignment list", /import\s*\{[^}]*TEXT_ALIGNMENT_LIST[^}]*\}\s*from\s*["'].*design\/composition\.js["']/.test(previewSrc));
+  ok("ALIGN2. the alignment control renders from TEXT_ALIGNMENT_LIST.map(), never a hardcoded ['left','center'] literal", /TEXT_ALIGNMENT_LIST\.map\(/.test(codeOnly) && !/\[\s*["']left["']\s*,\s*["']center["']\s*\]/.test(codeOnly));
+  ok("ALIGN3. setSelectedAlignment() updates the element immutably via .map(), never mutates composition.elements in place", /elements:\s*c\.elements\.map\(/.test(codeOnly));
+  ok("ALIGN4. only the `alignment` property is ever assigned to an element — no font/size/colour/position key appears inside any element `properties` object anywhere in this file", !/properties:\s*\{[^}]*(fontSize|fontFamily|weight|colour|color|position|lineHeight|letterSpacing)[^}]*\}/i.test(codeOnly));
+  ok("ALIGN5. the contextual alignment control only renders when an element is actually selected — conditional on selectedElement, never permanently visible", /\{selectedElement\s*&&\s*\(/.test(codeOnly));
+  ok("ALIGN6. the SAME composition state that drives the live static render also holds the alignment change — setSelectedAlignment calls setComposition, not a separate preview-only state setter", (() => {
+    const fnStart = codeOnly.indexOf("const setSelectedAlignment");
+    const fnEnd = codeOnly.indexOf("};", fnStart);
+    const fnBody = codeOnly.slice(fnStart, fnEnd);
+    return /setComposition\(/.test(fnBody);
+  })());
+}
+
 console.log(`\n${pass}/${pass + fail} assertions passed${fail ? ` — ${fail} FAILED` : ""}\n`);
 console.log("Browser-acceptance checklist still requiring MANUAL verification (not automated by this file):");
 console.log("  - Preview opens and the settled static frame renders immediately");
 console.log("  - clicking 'Preview motion' animates smoothly and settles on the final frame");
 console.log("  - clicking 'Preview motion' again restarts cleanly from frame 0");
 console.log("  - switching family/preset while playing cancels the prior loop (no visible double-draw/flicker)");
-console.log("  - the canvas preserves its 1:1 aspect ratio at several viewport widths");
+console.log("  - the canvas preserves its 1080x1350 aspect ratio at several viewport widths");
 console.log("  - with prefers-reduced-motion enabled, clicking Preview jumps straight to the settled frame with no animation");
-console.log("  - navigating away from the Motion Preview tab (or the whole page) leaves no console errors from a stale rAF callback\n");
+console.log("  - navigating away from the Motion Preview tab (or the whole page) leaves no console errors from a stale rAF callback");
+console.log("  - Export PNG downloads a file, and that file visually matches the settled canvas composition");
+console.log("  - an overlong headline/body is refused by Export PNG with a visible error and no download\n");
 if (fail > 0) process.exit(1);
