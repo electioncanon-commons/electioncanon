@@ -11,6 +11,8 @@
 // claims otherwise.
 // ============================================================
 
+import { MOTION_PRESET } from "./motion.js";
+
 export const ASSET_TYPE = Object.freeze({
   SOCIAL_POST: "social_post",
   SOCIAL_SQUARE: "social_square",
@@ -350,6 +352,26 @@ const ALL_CREATIVE_FORMATS = Object.freeze([CREATIVE_FORMAT.SQUARE, CREATIVE_FOR
 
 export const CREATIVE_FAMILY = Object.freeze({ STATEMENT: "statement", ANNOUNCEMENT: "announcement", CTA: "cta" });
 
+// GATE A.5.5.1 — MOTION SUPPORT DECLARATIONS. Exactly the same pattern as
+// `formats` above: each of the 3 approved creative families lists which
+// of design/motion.js's closed MOTION_PRESET vocabulary it supports —
+// never a fourth family, never a preset outside that vocabulary, never a
+// per-template override of the vocabulary itself. The 21 legacy
+// TEMPLATES below intentionally declare NO `motion` field at all — see
+// design/motion.js's validateMotionSpecification(), which treats a
+// missing `motion.supportedPresets` as "this template does not support
+// motion" and refuses honestly rather than guessing.
+//
+// STATEMENT/ANNOUNCEMENT/CTA all support FADE and SLIDE_UP (single-
+// composition effects with no assumption about slot count). Only
+// ANNOUNCEMENT and CTA additionally support STAGGER_LINES — that preset
+// only makes sense for a template with more than one meaningful text
+// slot to sequence; STATEMENT's own textSlots (headline, optional
+// supporting body) are a single dominant statement, not a sequence to
+// stagger through.
+const SINGLE_COMPOSITION_PRESETS = Object.freeze([MOTION_PRESET.FADE, MOTION_PRESET.SLIDE_UP]);
+const MULTI_SLOT_PRESETS = Object.freeze([MOTION_PRESET.FADE, MOTION_PRESET.SLIDE_UP, MOTION_PRESET.STAGGER_LINES]);
+
 export const CREATIVE_TEMPLATES = Object.freeze({
   [CREATIVE_FAMILY.STATEMENT]: Object.freeze({
     id: "creative_statement", label: "Statement / Hero", family: CREATIVE_FAMILY.STATEMENT,
@@ -364,6 +386,7 @@ export const CREATIVE_TEMPLATES = Object.freeze({
       visual: { background: { required: false } },
       identity: { brand: { required: false } },
     },
+    motion: { supportedPresets: SINGLE_COMPOSITION_PRESETS },
   }),
   [CREATIVE_FAMILY.ANNOUNCEMENT]: Object.freeze({
     id: "creative_announcement", label: "Announcement", family: CREATIVE_FAMILY.ANNOUNCEMENT,
@@ -378,6 +401,7 @@ export const CREATIVE_TEMPLATES = Object.freeze({
       visual: { background: { required: false } },
       identity: { brand: { required: false } },
     },
+    motion: { supportedPresets: MULTI_SLOT_PRESETS },
   }),
   [CREATIVE_FAMILY.CTA]: Object.freeze({
     id: "creative_cta", label: "Call to Action", family: CREATIVE_FAMILY.CTA,
@@ -393,6 +417,7 @@ export const CREATIVE_TEMPLATES = Object.freeze({
       visual: { background: { required: false } },
       identity: { brand: { required: false } },
     },
+    motion: { supportedPresets: MULTI_SLOT_PRESETS },
   }),
 });
 
