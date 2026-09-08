@@ -309,4 +309,96 @@ export const TEMPLATES = Object.freeze({
 
 export const TEMPLATE_LIST = Object.freeze(Object.values(TEMPLATES));
 
-export default { ASSET_TYPE, TEMPLATES, TEMPLATE_LIST };
+// ============================================================
+// GATE A.5.4 — CREATIVE TEMPLATE FAMILIES  (foundation increment)
+//
+// A SEPARATE map from TEMPLATES/ASSET_TYPE above, deliberately. TEMPLATES
+// is Campaign Studio's freeform Design-tab gallery: any active member
+// picks one and types whatever they want into arbitrary per-template text
+// slots via a plain <textarea> (see CampaignStudioSection.jsx's Editor) —
+// exactly the mechanism that let an internal Brief and a workspace name
+// end up rendered as public creative content (see the Gate A.5.4
+// architecture audit). CREATIVE_TEMPLATES below is NOT reachable from
+// that freeform editor: it is driven ONLY by an explicit
+// PublicCreativePayload (design/creative.js), built by a governed source
+// (e.g. buildCommunicationCreativePayload()) that structurally cannot
+// carry brief/creator/reviewer/approver/status. Existing TEMPLATES/
+// ASSET_TYPE/TEMPLATE_LIST above are completely unchanged by this
+// addition — no existing id, field, or behavior is touched.
+//
+// `formats` names three format ids (square/portrait/story) matching
+// communications/export.js's own EXPORT_FORMAT ids — an intentional,
+// documented duplication (not an import) exactly like export.js's own
+// EXPORT_FORMATS already is a deliberate separate table from this file's
+// TEMPLATES, for the same reason: design/ must not depend on
+// communications/ (communications already depends on design/, and this
+// file must not create the reverse edge).
+//
+// `slots.content` is the schema design/creative.js's validateCreativePayload()
+// checks against — which content slots this template accepts, and which
+// are required. No template here declares every one of the four possible
+// content slots (Gate A.5.4: "do not assume every template needs every
+// slot"). `slots.visual`/`slots.identity` are declared for shape
+// completeness only — no image is drawn in this phase (see design/
+// render.js's own header); `identity.brand` is genuinely used (an opt-in
+// footer credit, see render.js), populated ONLY by an explicit caller-
+// supplied value, never auto-derived from campaigns.name.
+// ============================================================
+
+export const CREATIVE_FORMAT = Object.freeze({ SQUARE: "square", PORTRAIT: "portrait", STORY: "story" });
+const ALL_CREATIVE_FORMATS = Object.freeze([CREATIVE_FORMAT.SQUARE, CREATIVE_FORMAT.PORTRAIT, CREATIVE_FORMAT.STORY]);
+
+export const CREATIVE_FAMILY = Object.freeze({ STATEMENT: "statement", ANNOUNCEMENT: "announcement", CTA: "cta" });
+
+export const CREATIVE_TEMPLATES = Object.freeze({
+  [CREATIVE_FAMILY.STATEMENT]: Object.freeze({
+    id: "creative_statement", label: "Statement / Hero", family: CREATIVE_FAMILY.STATEMENT,
+    formats: ALL_CREATIVE_FORMATS,
+    background: { kind: "solid", token: "primary" },
+    textSlots: [
+      { id: "headline", label: "Statement" },
+      { id: "body", label: "Supporting line" },
+    ],
+    slots: {
+      content: { headline: { required: true }, body: { required: false } },
+      visual: { background: { required: false } },
+      identity: { brand: { required: false } },
+    },
+  }),
+  [CREATIVE_FAMILY.ANNOUNCEMENT]: Object.freeze({
+    id: "creative_announcement", label: "Announcement", family: CREATIVE_FAMILY.ANNOUNCEMENT,
+    formats: ALL_CREATIVE_FORMATS,
+    background: { kind: "solid", token: "secondary" },
+    textSlots: [
+      { id: "headline", label: "Headline" },
+      { id: "body", label: "Details" },
+    ],
+    slots: {
+      content: { headline: { required: true }, body: { required: true }, supporting: { required: false } },
+      visual: { background: { required: false } },
+      identity: { brand: { required: false } },
+    },
+  }),
+  [CREATIVE_FAMILY.CTA]: Object.freeze({
+    id: "creative_cta", label: "Call to Action", family: CREATIVE_FAMILY.CTA,
+    formats: ALL_CREATIVE_FORMATS,
+    background: { kind: "solid", token: "accent" },
+    textSlots: [
+      { id: "headline", label: "Headline" },
+      { id: "body", label: "Body" },
+      { id: "cta", label: "Call to action" },
+    ],
+    slots: {
+      content: { headline: { required: true }, body: { required: false }, cta: { required: false } },
+      visual: { background: { required: false } },
+      identity: { brand: { required: false } },
+    },
+  }),
+});
+
+export const CREATIVE_TEMPLATE_LIST = Object.freeze(Object.values(CREATIVE_TEMPLATES));
+
+export default {
+  ASSET_TYPE, TEMPLATES, TEMPLATE_LIST,
+  CREATIVE_FORMAT, CREATIVE_FAMILY, CREATIVE_TEMPLATES, CREATIVE_TEMPLATE_LIST,
+};

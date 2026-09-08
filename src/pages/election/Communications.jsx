@@ -20,7 +20,7 @@ import { useState, useEffect, useCallback } from "react";
 import { supabase } from "../../lib/supabase.js";
 import * as commsApi from "../../domains/election/communications/api.js";
 import { EXPORT_FORMAT_LIST, exportApprovedVariant } from "../../domains/election/communications/export.js";
-import { Label, Panel, StatusChip, friendlyError, downloadBlob, UI, IVORY, MUTED, TEAL, AMBER, PINK, BORDER, BLACK, inputStyle } from "./shared.jsx";
+import { Label, Panel, StatusChip, friendlyError, downloadBlob, ensureCreativeFontsReady, UI, IVORY, MUTED, TEAL, AMBER, PINK, BORDER, BLACK, inputStyle } from "./shared.jsx";
 
 // User-facing labels for language_variants.status — read directly from
 // the column, never inferred from reviews/approvals rows (Gate A.5.2's
@@ -285,6 +285,7 @@ function CommunicationDetail({ communication, studioAssets, userId, isOwnerOrMan
     if (refreshError) { setError(refreshError); return; }
     const fresh = freshVariants.find((v) => v.id === variantId);
     if (!fresh) { setError("This language variant no longer exists."); return; }
+    await ensureCreativeFontsReady();
     const { blob, filename, error: exportError } = await exportApprovedVariant({
       communicationTitle: communication.title,
       variantStatus: fresh.status,

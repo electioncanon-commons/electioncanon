@@ -35,6 +35,7 @@
 // ============================================================
 
 import { renderTemplateToCanvas, canvasToPngBlob } from "../design/render.js";
+import { buildCommunicationCreativePayload, validateCreativePayload } from "../design/creative.js";
 import { VARIANT_STATUS } from "./api.js";
 
 // Gate A.5.3's three required social formats. 1080x1080 and 1080x1350
@@ -56,19 +57,30 @@ export const EXPORT_FORMATS = Object.freeze({
 export const EXPORT_FORMAT_LIST = Object.freeze(Object.values(EXPORT_FORMATS));
 
 // The fixed two-slot layout every Communications export uses, at whatever
-// size the chosen format declares. Background token "primary" and the
-// heading/body typography names match design/templates.js's own
-// vocabulary so design/render.js needs no format-specific branch.
+// size the chosen format declares. Background token "primary" matches
+// design/templates.js's own vocabulary so design/render.js needs no
+// format-specific branch. GATE A.5.4 — now also declares `formats` and
+// `slots.content`, the same metadata shape design/templates.js's new
+// CREATIVE_TEMPLATES use, so this template can be checked by design/
+// creative.js's validateCreativePayload() exactly like any other creative
+// template — this export path is a genuine instance of the general
+// Communication -> PublicCreativePayload -> renderer pipeline, not a
+// parallel, unchecked one.
 function buildExportTemplate(formatDef) {
   return Object.freeze({
     id: `communication_export_${formatDef.id}`,
     dimensions: { width: formatDef.width, height: formatDef.height },
+    formats: Object.freeze([EXPORT_FORMAT.SQUARE, EXPORT_FORMAT.PORTRAIT, EXPORT_FORMAT.STORY]),
     background: { kind: "solid", token: "primary" },
-    typography: { heading: "display", body: "ui" },
     textSlots: [
       { id: "headline", label: "Headline" },
       { id: "body", label: "Body" },
     ],
+    slots: {
+      content: { headline: { required: true }, body: { required: true } },
+      visual: {},
+      identity: { brand: { required: false } },
+    },
   });
 }
 
@@ -139,15 +151,30 @@ export async function exportApprovedVariant({
   }
 
   const template = buildExportTemplate(formatDef);
+
+  // GATE A.5.4 — built through the SAME closed-shape builder every other
+  // creative render uses. Only `title` and `text` (already validated,
+  // already trimmed, already flat strings — never the raw communication/
+  // language_variant rows this function's own callers hold) ever reach
+  // this call; `identity` is whatever the caller explicitly passed in
+  // (never auto-derived from campaigns.name — see design/creative.js's
+  // and design/render.js's own headers).
+  const payload = buildCommunicationCreativePayload({
+    communication: { title },
+    languageVariant: { text },
+    identity,
+  });
+
+  const validation = validateCreativePayload({ payload, template, format });
+  if (!validation.valid) {
+    return { blob: null, filename: null, error: validation.error };
+  }
+
   const canvas = createCanvas();
   canvas.width = formatDef.width;
   canvas.height = formatDef.height;
 
-  renderTemplateToCanvas({
-    canvas, template,
-    textBySlot: { headline: title, body: text },
-    identity,
-  });
+  renderTemplateToCanvas({ canvas, template, payload });
 
   const blob = await canvasToPngBlob(canvas);
   if (!blob) {

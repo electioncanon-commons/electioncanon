@@ -13,6 +13,7 @@ import { T } from "../../os/forge.js";
 import { FORGE_CLIPS } from "../../os/geometry.js";
 import { supabase } from "../../lib/supabase.js";
 import { prepareElectionWrite, approveElectionWrite } from "../../os/electionWebAdapter.js";
+import { CREATIVE_FONT_LOAD_SPECS } from "../../domains/election/design/typography.js";
 
 export const { black: BLACK, ivory: IVORY, teal: TEAL, amber: AMBER, pink: PINK,
   surface: SURFACE, border: BORDER, grey: MUTED } = T;
@@ -110,6 +111,34 @@ export function downloadBlob(blob, filename) {
   a.href = url; a.download = filename;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+// GATE A.5.4 — canvas does NOT automatically wait for a web font to
+// finish loading; a <canvas> ctx.font request for a face the browser
+// hasn't fetched yet silently falls back to a system font for that draw,
+// with no error. Poppins IS already loaded site-wide (index.html's Google
+// Fonts <link>, forge-brand.css's own @import) as ordinary CSS, but that
+// guarantees nothing about canvas readiness at the moment a creative
+// render happens to run. This is the smallest reliable fix: explicitly
+// request the exact face+weight strings design/typography.js's renderer
+// actually uses via the standard FontFaceSet API, and await the browser's
+// own readiness signal — no new font-loading library, no polling. Lives
+// here (not in domains/election/design/render.js) because `document.fonts`
+// is DOM access, and that module is a structurally-enforced DOM-free
+// boundary (see render.js's own header). Never throws: a browser with no
+// `document.fonts` (or a failed fetch) resolves `false` and the caller
+// proceeds anyway — Poppins is a visual polish for creative exports, not
+// a hard requirement the export path should ever block on.
+let creativeFontsReadyPromise = null;
+export function ensureCreativeFontsReady() {
+  if (typeof document === "undefined" || !document.fonts) return Promise.resolve(false);
+  if (!creativeFontsReadyPromise) {
+    creativeFontsReadyPromise = Promise.all(CREATIVE_FONT_LOAD_SPECS.map((spec) => document.fonts.load(spec)))
+      .then(() => document.fonts.ready)
+      .then(() => true)
+      .catch(() => false);
+  }
+  return creativeFontsReadyPromise;
 }
 
 export function Label({ children }) {

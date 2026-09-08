@@ -60,22 +60,46 @@ const SQUARE_TEMPLATE = Object.freeze({
 });
 
 // ============================================================
-console.log("render.js — the shared, extracted renderer");
+console.log("render.js — the shared, extracted renderer (GATE A.5.4 contract: {canvas, template, payload})");
 // ============================================================
 {
   const canvas = fakeCanvas(1080, 1080);
   renderTemplateToCanvas({
     canvas, template: SQUARE_TEMPLATE,
-    textBySlot: { headline: "Get Out The Vote", body: "Polls open 8am to 6pm." },
-    identity: { campaignName: "Ada for LG Chair" },
+    payload: { content: { headline: "Get Out The Vote", body: "Polls open 8am to 6pm." }, identity: {} },
   });
 
   ok("R1. the background is filled once, covering the full canvas", canvas._calls.fillRect.length >= 1 && canvas._calls.fillRect[0][2] === 1080 && canvas._calls.fillRect[0][3] === 1080);
   ok("R2. the background colour comes from the template's declared token (T.teal for 'primary'), not a new literal", canvas._calls.fillStyleHistory[0] === "#0A7F73");
   ok("R3. the headline text is drawn", canvas._calls.fillText.some((c) => c.text === "Get Out The Vote"));
   ok("R4. the body text is drawn", canvas._calls.fillText.some((c) => c.text.includes("Polls open")));
-  ok("R5. the identity campaignName is drawn as a footer credit, exactly as exportPng() always did", canvas._calls.fillText.some((c) => c.text === "Ada for LG Chair"));
   ok("R6. a slot with no value is skipped, never rendered as 'undefined'", !canvas._calls.fillText.some((c) => /undefined/.test(c.text)));
+}
+
+{
+  // GATE A.5.4 — the exact leak this gate removes. A payload carrying the
+  // OLD `identity.campaignName` field (whatever a caller might still pass,
+  // e.g. stale code) must NOT be drawn — this field no longer means
+  // anything to the renderer at all, unlike before this gate, where it was
+  // drawn unconditionally on every single render.
+  const canvas = fakeCanvas(1080, 1080);
+  renderTemplateToCanvas({
+    canvas, template: SQUARE_TEMPLATE,
+    payload: { content: { headline: "Headline" }, identity: { campaignName: "a52owner" } },
+  });
+  ok("R5a. identity.campaignName is NEVER drawn — the automatic campaign-name footer leak is removed", !canvas._calls.fillText.some((c) => c.text === "a52owner"));
+}
+
+{
+  // The REPLACEMENT mechanism: identity.brand, drawn ONLY when a caller
+  // explicitly supplies it — opt-in, never automatic.
+  const withBrand = fakeCanvas(1080, 1080);
+  renderTemplateToCanvas({ canvas: withBrand, template: SQUARE_TEMPLATE, payload: { content: { headline: "Headline" }, identity: { brand: "ElectionCanon" } } });
+  ok("R5b. identity.brand IS drawn when a caller explicitly supplies it", withBrand._calls.fillText.some((c) => c.text === "ElectionCanon"));
+
+  const withoutBrand = fakeCanvas(1080, 1080);
+  renderTemplateToCanvas({ canvas: withoutBrand, template: SQUARE_TEMPLATE, payload: { content: { headline: "Headline" }, identity: {} } });
+  ok("R5c. no identity at all draws no footer — nothing is EVER drawn automatically", withoutBrand._calls.fillText.length === 1 && withoutBrand._calls.fillText[0].text === "Headline");
 }
 
 {
@@ -87,7 +111,7 @@ console.log("render.js — the shared, extracted renderer");
   // always relied on.
   const longBody = Array.from({ length: 40 }, (_, i) => `word${i}`).join(" ");
   const canvas = fakeCanvas(1080, 1080);
-  renderTemplateToCanvas({ canvas, template: SQUARE_TEMPLATE, textBySlot: { body: longBody }, identity: {} });
+  renderTemplateToCanvas({ canvas, template: SQUARE_TEMPLATE, payload: { content: { body: longBody }, identity: {} } });
   ok("R7. long text wraps into multiple lines rather than one unbroken (and unmeasurable) string", canvas._calls.fillText.length > 1);
   ok("R8. wrapping never throws or drops words — every line drawn starts with a real word token", canvas._calls.fillText.every((c) => /^word\d/.test(c.text)));
 }

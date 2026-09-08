@@ -8,10 +8,27 @@
 //
 // GATE A.5.3 — the actual canvas-drawing logic (previously inline here as
 // exportPng()'s body) now lives in design/render.js, shared with the
-// Communications export pipeline (see communications/export.js). This
-// file's own exportPng() is unchanged in behavior: same inputs, same
-// pixels, same download — it just calls the shared renderer instead of
-// duplicating it.
+// Communications export pipeline (see communications/export.js).
+//
+// GATE A.5.4 — render.js's contract is now {canvas, template, payload}
+// (payload = {content, identity}), not the old {textBySlot, identity}.
+//
+// GATE A.5.4 PHASE 2.1 — this function now routes through design/
+// creative.js's buildStudioCreativePayload()/validateCreativePayload(),
+// closing the gap Phase 2 deliberately left open. Those functions do NOT
+// force the 21 existing templates into the Communications 4-slot
+// vocabulary (when/where/ward/callToAction/subject/etc. all keep working
+// exactly as before) — instead, EACH TEMPLATE's own `textSlots` is that
+// template's closed allowlist. buildStudioCreativePayload() reads
+// asset.content.text key-by-key, ONLY for keys the selected template
+// itself declares; any other key on that object (brief, created_by,
+// reviewer_id, approver_id, status, internal_notes, or anything else a
+// human might have typed under an unrelated key) is never read, so it can
+// never reach the payload or the renderer, regardless of what the asset's
+// own JSON content happens to contain. `asset.content.identity` (which
+// historically carried an automatically-populated campaigns.name, the
+// exact leak this gate's architecture audit identified) is likewise never
+// read — see buildStudioCreativePayload()'s own header.
 // ============================================================
 
 import { useState, useEffect, useCallback } from "react";
@@ -19,8 +36,9 @@ import { supabase } from "../../lib/supabase.js";
 import * as assetsApi from "../../domains/election/design/assets.js";
 import { TEMPLATE_LIST, TEMPLATES } from "../../domains/election/design/templates.js";
 import { renderTemplateToCanvas, canvasToPngBlob } from "../../domains/election/design/render.js";
+import { buildStudioCreativePayload, validateCreativePayload } from "../../domains/election/design/creative.js";
 import CommunicationsPanel from "./Communications.jsx";
-import { Label, Panel, DemoTag, friendlyError, downloadBlob, UI, IVORY, MUTED, TEAL, AMBER, PINK, BORDER, BLACK, inputStyle } from "./shared.jsx";
+import { Label, Panel, DemoTag, friendlyError, downloadBlob, ensureCreativeFontsReady, UI, IVORY, MUTED, TEAL, AMBER, PINK, BORDER, BLACK, inputStyle } from "./shared.jsx";
 
 // GATE A.5.1 — an in-page tab, NOT a new top-level navigation item (see the
 // Gate A.5 architecture report's recommended UI boundary: Campaign Studio
@@ -55,20 +73,26 @@ function AssetRow({ asset, onOpen }) {
 }
 
 /** Renders the asset's current content onto an offscreen canvas and triggers
- *  a PNG download — text/colour only, no image-generation engine. Drawing
- *  logic lives in design/render.js (Gate A.5.3 extraction); this function
- *  is unchanged in behavior from before that extraction. */
+ *  a PNG download — text/colour only, no image-generation engine.
+ *
+ *  GATE A.5.4 PHASE 2.1 — builds and validates a payload through the same
+ *  closed-shape machinery every other creative render uses (see this
+ *  file's own header). `asset.content.identity` (the historical
+ *  campaignName leak) is never read — see buildStudioCreativePayload()'s
+ *  own header in design/creative.js. */
 async function exportPng(asset, template) {
   const { width, height } = template.dimensions;
+
+  const payload = buildStudioCreativePayload({ asset, template, identity: {} });
+  const validation = validateCreativePayload({ payload, template });
+  if (!validation.valid) return;
+
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height ?? 630;
 
-  renderTemplateToCanvas({
-    canvas, template,
-    textBySlot: asset.content?.text ?? {},
-    identity: asset.content?.identity ?? {},
-  });
+  await ensureCreativeFontsReady();
+  renderTemplateToCanvas({ canvas, template, payload });
 
   const blob = await canvasToPngBlob(canvas);
   if (!blob) return;
