@@ -135,7 +135,11 @@ export default function MotionPreview() {
 
     return () => {
       sessionRef.current += 1;
-      if (rafRef.current != null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+      if (rafRef.current != null) {
+        cancelAnimationFrame(rafRef.current);
+        rafRef.current = null;
+        setIsPlaying(false);
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [familyKey, preset, content]);

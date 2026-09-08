@@ -139,6 +139,26 @@ console.log("\nCampaign Studio wiring — in-page tab, not new top-level navigat
   ok("W4. the legacy Design-tab Editor/exportPng()/assetsApi flow is untouched — still present verbatim in the same file", /async function exportPng\(/.test(studioSrc) && /assetsApi\.createAsset/.test(studioSrc));
 }
 
+// ============================================================
+console.log("\nExternal cancellation resets isPlaying (Gate A.5.5.3 fix)");
+// ============================================================
+{
+  const cleanupBody = codeOnly.slice(codeOnly.indexOf("return () => {"), codeOnly.indexOf("}, [familyKey, preset, content]);"));
+  ok("C1. the family/preset/content cleanup exists and still cancels the rAF handle", /cancelAnimationFrame\(rafRef\.current\)/.test(cleanupBody));
+  ok("C2. that SAME cleanup also resets isPlaying to false — a preview cancelled by a family/preset/content change must not leave the button stuck on \"Previewing…\"", /setIsPlaying\(false\)/.test(cleanupBody));
+  ok("C3. the isPlaying reset is guarded by the same rafRef.current != null check as the cancellation — never an unconditional call on every dependency change/unmount", (() => {
+    const guardIndex = cleanupBody.indexOf("rafRef.current != null");
+    const cancelIndex = cleanupBody.indexOf("cancelAnimationFrame(rafRef.current)");
+    const resetIndex = cleanupBody.indexOf("setIsPlaying(false)");
+    return guardIndex !== -1 && guardIndex < cancelIndex && cancelIndex < resetIndex;
+  })());
+  ok("C4. the natural-completion reset inside tick() is untouched — still exactly one setIsPlaying(false) call there, unchanged by this fix", (() => {
+    const tickBody = codeOnly.slice(codeOnly.indexOf("const tick = ()"), codeOnly.indexOf("rafRef.current = requestAnimationFrame(tick);\n  }, ["));
+    const matches = tickBody.match(/setIsPlaying\(false\)/g) || [];
+    return matches.length === 1;
+  })());
+}
+
 console.log(`\n${pass}/${pass + fail} assertions passed${fail ? ` — ${fail} FAILED` : ""}\n`);
 console.log("Browser-acceptance checklist still requiring MANUAL verification (not automated by this file):");
 console.log("  - Preview opens and the settled static frame renders immediately");
