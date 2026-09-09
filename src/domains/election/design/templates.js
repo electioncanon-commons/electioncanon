@@ -381,9 +381,22 @@ export const CREATIVE_TEMPLATES = Object.freeze({
       { id: "headline", label: "Statement" },
       { id: "body", label: "Supporting line" },
     ],
+    // GATE A.7.1 (IMAGE ELEMENT FOUNDATION) — the ONLY one of the 3 approved
+    // creative families to declare an image slot in this foundation gate.
+    // "Statement / Hero" is the one family whose own label already names
+    // exactly this use case (a hero photo behind a statement); Announcement
+    // and CTA stay text-only until a real product need justifies widening
+    // this list — see design/composition.js's own header on why a slot is
+    // never added "because the legacy system happens to have one" in this
+    // codebase. Reuses `heroImage`, one of design/creative.js's own
+    // PUBLIC_VISUAL_SLOTS names, rather than inventing a new parallel
+    // vocabulary. Same `[{id, label}]` shape as `textSlots` — see
+    // design/composition.js's defaultCompositionFor(), which reads this
+    // array exactly the same defensive way.
+    imageSlots: [{ id: "heroImage", label: "Hero image (optional)" }],
     slots: {
       content: { headline: { required: true }, body: { required: false } },
-      visual: { background: { required: false } },
+      visual: { background: { required: false }, heroImage: { required: false } },
       identity: { brand: { required: false } },
     },
     motion: { supportedPresets: SINGLE_COMPOSITION_PRESETS },

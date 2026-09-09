@@ -22,17 +22,24 @@
 // CLOSED ELEMENT VOCABULARY, NOT A LAYOUT ENGINE. An element is a fixed,
 // named, code-owned kind with a fixed, closed property schema — never a
 // generic `style: {}` escape hatch, never free x/y, never a pixel font
-// size, never an arbitrary colour, never a transform. See ELEMENT_KIND and
-// TEXT_ALIGNMENT below for the entire V1 vocabulary — nothing else exists.
+// size, never an arbitrary colour, never a transform. See ELEMENT_KIND,
+// TEXT_ALIGNMENT and IMAGE_FIT below for the entire vocabulary — nothing
+// else exists.
 //
-// V1 SCOPE — TEXT ONLY. Background and brand remain exactly what they are
-// today: template/payload-driven, drawn by design/render.js's own
-// drawBackground()/computeBrandLine(), never modeled as elements here. A
-// future gate may promote them to elements (or add an "artifact" kind) —
-// this file does not need to anticipate that shape, only avoid making it
-// hard (see this file's own defaultCompositionFor(), which only ever
-// derives from template.textSlots — extending the element vocabulary later
-// is additive, not a rewrite of this function's own logic).
+// GATE A.7.1 — IMAGE ELEMENT FOUNDATION. ELEMENT_KIND grows its second
+// (and, for now, last) member: IMAGE. Exactly the same closed-vocabulary
+// discipline as TEXT — a fixed property schema (`fit` only; see
+// PROPERTY_SCHEMA below), no geometry, no asset/drawable reference stored
+// here (see design/render.js's own IMAGE_GEOMETRY and its `drawables`
+// parameter — WHICH image fills a role, and WHERE that role sits on the
+// canvas, are both render-time/render-owned concerns, not composition
+// data). Background and brand remain exactly what they were before this
+// gate too: template/payload-driven, drawn by design/render.js's own
+// drawBackground()/computeBrandLine(), never modeled as elements here.
+// defaultCompositionFor()'s own extension (deriving IMAGE elements from
+// `template.imageSlots`, the same shape as `textSlots`) is additive, not a
+// rewrite of that function's pre-existing TEXT logic — exactly what this
+// comment predicted before any second kind existed.
 //
 // SCOPED TO CREATIVE_TEMPLATES ONLY. The legacy 21 TEMPLATES/ASSET_TYPE
 // gallery (design/templates.js's own freeform Design-tab templates) never
@@ -56,11 +63,22 @@
 
 import { CREATIVE_FORMAT } from "./templates.js";
 
-export const ELEMENT_KIND = Object.freeze({ TEXT: "text" });
+export const ELEMENT_KIND = Object.freeze({ TEXT: "text", IMAGE: "image" });
 export const ELEMENT_KIND_LIST = Object.freeze(Object.values(ELEMENT_KIND));
 
 export const TEXT_ALIGNMENT = Object.freeze({ LEFT: "left", CENTER: "center" });
 export const TEXT_ALIGNMENT_LIST = Object.freeze(Object.values(TEXT_ALIGNMENT));
+
+// GATE A.7.1 (IMAGE ELEMENT FOUNDATION) — exactly one supported fit mode.
+// "cover" is the only crop behaviour that guarantees the declared
+// destination rect is always fully covered regardless of the source
+// image's own aspect ratio, with no letterbox-colour decision to make
+// (contain) and no distortion risk (stretch) — both legitimate future
+// additions, not a decision this foundation gate needs to make. A real,
+// closed, growable enum (validated the same `.includes()` way as
+// TEXT_ALIGNMENT_LIST), never a boolean or a free string.
+export const IMAGE_FIT = Object.freeze({ COVER: "cover" });
+export const IMAGE_FIT_LIST = Object.freeze(Object.values(IMAGE_FIT));
 
 const CREATIVE_FORMAT_LIST = Object.freeze(Object.values(CREATIVE_FORMAT));
 
@@ -71,6 +89,19 @@ const CREATIVE_FORMAT_LIST = Object.freeze(Object.values(CREATIVE_FORMAT));
 const PROPERTY_SCHEMA = Object.freeze({
   [ELEMENT_KIND.TEXT]: Object.freeze({
     alignment: (value) => TEXT_ALIGNMENT_LIST.includes(value),
+  }),
+  // GATE A.7.1 — an IMAGE element carries no geometry of its own (see
+  // design/render.js's own IMAGE_GEOMETRY — a fixed, code-owned rect per
+  // role, never a per-element x/y/width/height here — "do not introduce
+  // arbitrary freeform pixel positioning controls") and no asset/drawable
+  // reference either: this file stays Supabase-free and asset-free (see
+  // this file's own header) — WHICH image fills a given role is a
+  // render-time concern, resolved by the caller supplying render.js a
+  // `drawables` map joined purely by `role`, the exact same join key TEXT
+  // already uses against `payload.content[role]`. `fit` is the only
+  // property a V1 image element governs.
+  [ELEMENT_KIND.IMAGE]: Object.freeze({
+    fit: (value) => IMAGE_FIT_LIST.includes(value),
   }),
 });
 
@@ -88,15 +119,28 @@ const PROPERTY_SCHEMA = Object.freeze({
  *  and design/render.js's renderMotionFrameToCanvas() already use. */
 export function defaultCompositionFor(template, format) {
   const textSlots = Array.isArray(template?.textSlots) ? template.textSlots : [];
+  // GATE A.7.1 — `template.imageSlots`, the SAME `[{id, label}]` shape as
+  // `textSlots`, read the same defensive way. Appended AFTER every text
+  // element (never interleaved) so every existing index-based assumption
+  // about the TEXT elements' own relative order/position is unaffected.
+  const imageSlots = Array.isArray(template?.imageSlots) ? template.imageSlots : [];
   return {
     templateId: template?.id ?? null,
     format,
-    elements: textSlots.map((slot) => ({
-      id: slot.id,
-      kind: ELEMENT_KIND.TEXT,
-      role: slot.id,
-      properties: { alignment: TEXT_ALIGNMENT.LEFT },
-    })),
+    elements: [
+      ...textSlots.map((slot) => ({
+        id: slot.id,
+        kind: ELEMENT_KIND.TEXT,
+        role: slot.id,
+        properties: { alignment: TEXT_ALIGNMENT.LEFT },
+      })),
+      ...imageSlots.map((slot) => ({
+        id: slot.id,
+        kind: ELEMENT_KIND.IMAGE,
+        role: slot.id,
+        properties: { fit: IMAGE_FIT.COVER },
+      })),
+    ],
   };
 }
 
@@ -141,9 +185,19 @@ export function validateCreativeComposition({ composition, template } = {}) {
     return { valid: false, error: `Template "${template.id}" does not support the "${composition.format}" format.` };
   }
 
-  const declaredRoles = Array.isArray(template.textSlots) ? template.textSlots.map((s) => s.id) : [];
+  // GATE A.7.1 — declared roles are now PER ELEMENT KIND: a template's
+  // textSlots and imageSlots are two independent closed role lists, and an
+  // element's role is only ever checked against ITS OWN kind's list —
+  // never the other kind's. For a text-only template (imageSlots absent),
+  // declaredRolesByKind[IMAGE] is simply [], and every check below behaves
+  // EXACTLY as it did before this gate — this generalization is provably
+  // behaviour-preserving for any composition with no image elements.
+  const declaredRolesByKind = {
+    [ELEMENT_KIND.TEXT]: Array.isArray(template.textSlots) ? template.textSlots.map((s) => s.id) : [],
+    [ELEMENT_KIND.IMAGE]: Array.isArray(template.imageSlots) ? template.imageSlots.map((s) => s.id) : [],
+  };
   const seenIds = new Set();
-  const seenRoles = new Set();
+  const seenRolesByKind = { [ELEMENT_KIND.TEXT]: new Set(), [ELEMENT_KIND.IMAGE]: new Set() };
 
   for (const element of composition.elements) {
     if (!element || typeof element !== "object") return STRUCTURE_ERROR;
@@ -158,13 +212,15 @@ export function validateCreativeComposition({ composition, template } = {}) {
     if (!ELEMENT_KIND_LIST.includes(kind)) {
       return { valid: false, error: `"${kind}" is not a recognised element kind.` };
     }
-    if (!declaredRoles.includes(role)) {
-      return { valid: false, error: `Template "${template.id}" does not declare a "${role}" text slot.` };
+    if (!declaredRolesByKind[kind].includes(role)) {
+      const slotWord = kind === ELEMENT_KIND.IMAGE ? "image slot" : "text slot";
+      return { valid: false, error: `Template "${template.id}" does not declare a "${role}" ${slotWord}.` };
     }
     if (seenIds.has(id)) {
       return { valid: false, error: `Duplicate element id "${id}".` };
     }
     seenIds.add(id);
+    const seenRoles = seenRolesByKind[kind];
     if (seenRoles.has(role)) {
       return { valid: false, error: `Duplicate element role "${role}".` };
     }
@@ -191,14 +247,21 @@ export function validateCreativeComposition({ composition, template } = {}) {
     }
   }
 
-  if (seenRoles.size !== declaredRoles.length) {
-    return { valid: false, error: `Composition must declare exactly one element per text slot on template "${template.id}".` };
+  // GATE A.7.1 — the same structural-completeness check as before, now run
+  // ONCE PER KIND: every declared role of that kind must have exactly one
+  // element, no fewer, no more. For a template with no imageSlots this is
+  // trivially satisfied (0 declared, 0 seen) — unchanged behaviour.
+  for (const kind of ELEMENT_KIND_LIST) {
+    if (seenRolesByKind[kind].size !== declaredRolesByKind[kind].length) {
+      const slotWord = kind === ELEMENT_KIND.IMAGE ? "image slot" : "text slot";
+      return { valid: false, error: `Composition must declare exactly one element per ${slotWord} on template "${template.id}".` };
+    }
   }
 
   return { valid: true, error: null };
 }
 
 export default {
-  ELEMENT_KIND, ELEMENT_KIND_LIST, TEXT_ALIGNMENT, TEXT_ALIGNMENT_LIST,
+  ELEMENT_KIND, ELEMENT_KIND_LIST, TEXT_ALIGNMENT, TEXT_ALIGNMENT_LIST, IMAGE_FIT, IMAGE_FIT_LIST,
   defaultCompositionFor, validateCreativeComposition,
 };

@@ -22,7 +22,7 @@ import { renderTemplateToCanvas, renderCompositionToCanvas, renderCompositionMot
 import { CREATIVE_TEMPLATES, CREATIVE_FAMILY, CREATIVE_FORMAT } from "../src/domains/election/design/templates.js";
 import { MOTION_PRESET } from "../src/domains/election/design/motion.js";
 import {
-  ELEMENT_KIND, TEXT_ALIGNMENT,
+  ELEMENT_KIND, TEXT_ALIGNMENT, IMAGE_FIT,
   defaultCompositionFor, validateCreativeComposition,
 } from "../src/domains/election/design/composition.js";
 import { readFileSync } from "fs";
@@ -30,11 +30,22 @@ import { fileURLToPath } from "url";
 
 let pass = 0, fail = 0;
 const ok = (n, c) => { if (c) { pass++; console.log(`  ok   ${n}`); } else { fail++; console.log(`  FAIL ${n}`); } };
+// GATE A.7.1 — cover-crop math goes through a division then a multiplication
+// (dWidth/scale), which is not guaranteed bit-exact even for inputs chosen
+// to divide evenly (e.g. 1080/2.16 is ~499.99999999999994, not 500) — an
+// ordinary floating-point property, not a correctness bug. Geometry
+// assertions below compare with this tolerance rather than `===`.
+const approx = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
 
 console.log("\nELECTIONCANON — Gate A.6.1: creative composition foundation\n");
 
 function fakeCanvas(width, height) {
-  const calls = { fillRect: [], fillText: [], fillStyleHistory: [] };
+  // GATE A.7.1 — `drawImage` records its full call (9-arg source-crop +
+  // destination-rect form) exactly like `fillRect`/`fillText` already
+  // record theirs. Existing tests never supply a `drawables` map to
+  // renderCompositionToCanvas(), so drawImageElements() never calls this —
+  // adding it here is a pure no-op for every pre-existing assertion.
+  const calls = { fillRect: [], fillText: [], fillStyleHistory: [], drawImage: [] };
   let fillStyle = null;
   let globalAlpha = 1;
   const ctx = {
@@ -45,6 +56,7 @@ function fakeCanvas(width, height) {
     font: null, textBaseline: null,
     fillRect: (...args) => calls.fillRect.push(args),
     fillText: (text, x, y) => calls.fillText.push({ text, x, y, font: ctx.font, alpha: ctx.globalAlpha }),
+    drawImage: (...args) => calls.drawImage.push(args),
     measureText: (text) => ({ width: String(text).length * ((parseFloat(/(\d+(?:\.\d+)?)px/.exec(ctx.font || "")?.[1]) || 16)) * 0.55 }),
   };
   return { width, height, getContext: () => ctx, textBaseline: null, _calls: calls };
@@ -59,10 +71,17 @@ console.log("defaultCompositionFor()");
 {
   const format = CREATIVE_FORMAT.PORTRAIT;
   const composition = defaultCompositionFor(STATEMENT_TEMPLATE, format);
+  // GATE A.7.1 — STATEMENT now also declares one imageSlot (heroImage), so
+  // its default composition is 2 TEXT elements + 1 IMAGE element, image
+  // elements always appended after every text element.
+  const textElements = composition.elements.filter((el) => el.kind === ELEMENT_KIND.TEXT);
+  const imageElements = composition.elements.filter((el) => el.kind === ELEMENT_KIND.IMAGE);
 
-  ok("1. derives exactly one element per template.textSlots entry, in declared order", composition.elements.length === STATEMENT_TEMPLATE.textSlots.length && composition.elements.every((el, i) => el.role === STATEMENT_TEMPLATE.textSlots[i].id));
+  ok("1. derives exactly one TEXT element per template.textSlots entry, in declared order", textElements.length === STATEMENT_TEMPLATE.textSlots.length && textElements.every((el, i) => el.role === STATEMENT_TEMPLATE.textSlots[i].id));
+  ok("1b. GATE A.7.1 — derives exactly one IMAGE element per template.imageSlots entry, in declared order, appended after every TEXT element", imageElements.length === STATEMENT_TEMPLATE.imageSlots.length && imageElements.every((el, i) => el.role === STATEMENT_TEMPLATE.imageSlots[i].id) && composition.elements.slice(0, textElements.length).every((el) => el.kind === ELEMENT_KIND.TEXT) && composition.elements.length === textElements.length + imageElements.length);
   ok("2. id equals role for every V1 element", composition.elements.every((el) => el.id === el.role));
-  ok("3. every element defaults to alignment: left", composition.elements.every((el) => el.kind === ELEMENT_KIND.TEXT && el.properties.alignment === TEXT_ALIGNMENT.LEFT));
+  ok("3. every TEXT element defaults to alignment: left", textElements.every((el) => el.properties.alignment === TEXT_ALIGNMENT.LEFT));
+  ok("3b. GATE A.7.1 — every IMAGE element defaults to fit: cover", imageElements.every((el) => el.properties.fit === IMAGE_FIT.COVER));
   ok("4. defaultCompositionFor() never mutates the template object", (() => {
     const before = JSON.stringify(STATEMENT_TEMPLATE);
     defaultCompositionFor(STATEMENT_TEMPLATE, format);
@@ -80,7 +99,10 @@ console.log("\nvalidateCreativeComposition()");
 
   ok("5. accepts a valid default composition", validateCreativeComposition({ composition: valid, template: STATEMENT_TEMPLATE }).valid === true);
 
-  const unknownKind = { ...valid, elements: valid.elements.map((el, i) => (i === 0 ? { ...el, kind: "image" } : el)) };
+  // GATE A.7.1 — "image" is now a REAL, recognised kind, so this must use a
+  // genuinely bogus kind to keep testing "an unrecognised kind is rejected"
+  // rather than accidentally testing something that now validates.
+  const unknownKind = { ...valid, elements: valid.elements.map((el, i) => (i === 0 ? { ...el, kind: "video" } : el)) };
   ok("6. rejects an unrecognised element kind", validateCreativeComposition({ composition: unknownKind, template: STATEMENT_TEMPLATE }).valid === false);
 
   const unknownRole = { ...valid, elements: valid.elements.map((el, i) => (i === 0 ? { ...el, id: "cta", role: "cta" } : el)) };
@@ -105,6 +127,139 @@ console.log("\nvalidateCreativeComposition()");
     const fakeTemplate = { ...STATEMENT_TEMPLATE, formats: [CREATIVE_FORMAT.SQUARE] };
     return validateCreativeComposition({ composition: { ...valid, format: CREATIVE_FORMAT.STORY }, template: fakeTemplate }).valid === false;
   })());
+}
+
+// ============================================================
+console.log("\nGATE A.7.1 — IMAGE ELEMENT FOUNDATION: composition validation");
+// ============================================================
+{
+  const format = CREATIVE_FORMAT.PORTRAIT;
+  const valid = defaultCompositionFor(STATEMENT_TEMPLATE, format);
+  const heroIndex = valid.elements.findIndex((el) => el.kind === ELEMENT_KIND.IMAGE);
+
+  ok("I1. a valid default STATEMENT composition (2 text + 1 image) validates", validateCreativeComposition({ composition: valid, template: STATEMENT_TEMPLATE }).valid === true);
+
+  ok("I2. rejects a composition missing its declared image element entirely (structural completeness applies per-kind, exactly like text)", validateCreativeComposition({ composition: { ...valid, elements: valid.elements.filter((el) => el.kind !== ELEMENT_KIND.IMAGE) }, template: STATEMENT_TEMPLATE }).valid === false);
+
+  const unknownImageRole = { ...valid, elements: valid.elements.map((el, i) => (i === heroIndex ? { ...el, id: "secondaryImage", role: "secondaryImage" } : el)) };
+  ok("I3. rejects an image element whose role the template does not declare in imageSlots", validateCreativeComposition({ composition: unknownImageRole, template: STATEMENT_TEMPLATE }).valid === false);
+
+  const duplicateImageRole = { ...valid, elements: [...valid.elements, { ...valid.elements[heroIndex] }] };
+  ok("I4. rejects a duplicate image element role", validateCreativeComposition({ composition: duplicateImageRole, template: STATEMENT_TEMPLATE }).valid === false);
+
+  const missingFit = { ...valid, elements: valid.elements.map((el, i) => (i === heroIndex ? { ...el, properties: {} } : el)) };
+  ok("I5. rejects an image element missing its required fit property", validateCreativeComposition({ composition: missingFit, template: STATEMENT_TEMPLATE }).valid === false);
+
+  const invalidFit = { ...valid, elements: valid.elements.map((el, i) => (i === heroIndex ? { ...el, properties: { fit: "stretch" } } : el)) };
+  ok("I6. rejects an unsupported fit value (only \"cover\" exists in this foundation gate)", validateCreativeComposition({ composition: invalidFit, template: STATEMENT_TEMPLATE }).valid === false);
+
+  const undeclaredImageProperty = { ...valid, elements: valid.elements.map((el, i) => (i === heroIndex ? { ...el, properties: { fit: IMAGE_FIT.COVER, x: 10 } } : el)) };
+  ok("I7. rejects an undeclared property on an image element (no freeform x/y ever accepted)", validateCreativeComposition({ composition: undeclaredImageProperty, template: STATEMENT_TEMPLATE }).valid === false);
+
+  const alignmentOnImage = { ...valid, elements: valid.elements.map((el, i) => (i === heroIndex ? { ...el, properties: { alignment: TEXT_ALIGNMENT.LEFT } } : el)) };
+  ok("I8. TEXT's `alignment` property does not leak into IMAGE validation — an image element with only `alignment` (no `fit`) fails", validateCreativeComposition({ composition: alignmentOnImage, template: STATEMENT_TEMPLATE }).valid === false);
+
+  const fitOnText = { ...valid, elements: valid.elements.map((el, i) => (i === 0 ? { ...el, properties: { fit: IMAGE_FIT.COVER } } : el)) };
+  ok("I9. IMAGE's `fit` property does not leak into TEXT validation — a text element with only `fit` (no `alignment`) fails", validateCreativeComposition({ composition: fitOnText, template: STATEMENT_TEMPLATE }).valid === false);
+
+  ok("I10. text-only templates (Announcement, no imageSlots declared) are completely unaffected — a valid text-only composition still validates", validateCreativeComposition({ composition: defaultCompositionFor(ANNOUNCEMENT_TEMPLATE, format), template: ANNOUNCEMENT_TEMPLATE }).valid === true);
+
+  ok("I11. an Announcement composition can never legally carry an image element — Announcement declares no imageSlots at all", validateCreativeComposition({ composition: { ...defaultCompositionFor(ANNOUNCEMENT_TEMPLATE, format), elements: [...defaultCompositionFor(ANNOUNCEMENT_TEMPLATE, format).elements, { id: "heroImage", kind: ELEMENT_KIND.IMAGE, role: "heroImage", properties: { fit: IMAGE_FIT.COVER } }] }, template: ANNOUNCEMENT_TEMPLATE }).valid === false);
+}
+
+// ============================================================
+console.log("\nGATE A.7.1 — IMAGE ELEMENT FOUNDATION: renderCompositionToCanvas() drawImage geometry/fit");
+// ============================================================
+{
+  const format = CREATIVE_FORMAT.PORTRAIT;
+  const composition = defaultCompositionFor(STATEMENT_TEMPLATE, format);
+  const payload = { content: { headline: "Every vote counts", body: "Register before Friday" }, visual: {}, identity: {} };
+
+  ok("D1. no drawables supplied -> drawImage is never called (existing callers are completely unaffected)", (() => {
+    const canvas = fakeCanvas(1080, 1350);
+    renderCompositionToCanvas({ canvas, template: STATEMENT_TEMPLATE, payload, composition });
+    return canvas._calls.drawImage.length === 0;
+  })());
+
+  ok("D2. a declared role with no matching drawables entry draws nothing (same 'absent value draws nothing' rule as text)", (() => {
+    const canvas = fakeCanvas(1080, 1350);
+    renderCompositionToCanvas({ canvas, template: STATEMENT_TEMPLATE, payload, composition, drawables: { someOtherRole: { source: "x", width: 100, height: 100 } } });
+    return canvas._calls.drawImage.length === 0;
+  })());
+
+  ok("D3. a square (1:1) drawable into the full-bleed square-canvas destination draws the ENTIRE source, at the full canvas rect", (() => {
+    const canvas = fakeCanvas(1080, 1080);
+    const squareComposition = defaultCompositionFor(STATEMENT_TEMPLATE, CREATIVE_FORMAT.SQUARE);
+    renderCompositionToCanvas({ canvas, template: STATEMENT_TEMPLATE, payload, composition: squareComposition, drawables: { heroImage: { source: "fake-square", width: 500, height: 500 } } });
+    const [source, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight] = canvas._calls.drawImage[0];
+    return source === "fake-square" && approx(sx, 0) && approx(sy, 0) && approx(sWidth, 500) && approx(sHeight, 500) && dx === 0 && dy === 0 && dWidth === 1080 && dHeight === 1080;
+  })());
+
+  ok("D4. a wider-than-destination drawable is cropped on the LEFT/RIGHT (cover), centered, never stretched", (() => {
+    const canvas = fakeCanvas(1080, 1080);
+    const squareComposition = defaultCompositionFor(STATEMENT_TEMPLATE, CREATIVE_FORMAT.SQUARE);
+    renderCompositionToCanvas({ canvas, template: STATEMENT_TEMPLATE, payload, composition: squareComposition, drawables: { heroImage: { source: "fake-wide", width: 2000, height: 1000 } } });
+    const [, sx, sy, sWidth, sHeight] = canvas._calls.drawImage[0];
+    // destination is 1080x1080 (square); source is 2:1 -> covering crop keeps full source height (1000) and crops width to 1000, centered (sx = (2000-1000)/2 = 500).
+    return approx(sy, 0) && approx(sHeight, 1000) && approx(sWidth, 1000) && approx(sx, 500);
+  })());
+
+  ok("D5. a taller-than-destination drawable is cropped on TOP/BOTTOM (cover), centered", (() => {
+    const canvas = fakeCanvas(1080, 1080);
+    const squareComposition = defaultCompositionFor(STATEMENT_TEMPLATE, CREATIVE_FORMAT.SQUARE);
+    renderCompositionToCanvas({ canvas, template: STATEMENT_TEMPLATE, payload, composition: squareComposition, drawables: { heroImage: { source: "fake-tall", width: 1000, height: 2000 } } });
+    const [, sx, sy, sWidth, sHeight] = canvas._calls.drawImage[0];
+    return approx(sx, 0) && approx(sWidth, 1000) && approx(sHeight, 1000) && approx(sy, 500);
+  })());
+
+  ok("D6. drawImage is called exactly once per present image element (never once per text line, never duplicated)", (() => {
+    const canvas = fakeCanvas(1080, 1350);
+    renderCompositionToCanvas({ canvas, template: STATEMENT_TEMPLATE, payload, composition, drawables: { heroImage: { source: "x", width: 100, height: 100 } } });
+    return canvas._calls.drawImage.length === 1;
+  })());
+
+  ok("D7. a malformed drawable (non-positive width) draws nothing rather than dividing by zero/throwing", (() => {
+    const canvas = fakeCanvas(1080, 1350);
+    renderCompositionToCanvas({ canvas, template: STATEMENT_TEMPLATE, payload, composition, drawables: { heroImage: { source: "x", width: 0, height: 100 } } });
+    return canvas._calls.drawImage.length === 0;
+  })());
+
+  ok("D8. deterministic: identical inputs (same drawable, same geometry) produce byte-identical drawImage args on repeat calls", (() => {
+    const c1 = fakeCanvas(1080, 1080);
+    const c2 = fakeCanvas(1080, 1080);
+    const squareComposition = defaultCompositionFor(STATEMENT_TEMPLATE, CREATIVE_FORMAT.SQUARE);
+    const drawables = { heroImage: { source: "fake", width: 640, height: 480 } };
+    renderCompositionToCanvas({ canvas: c1, template: STATEMENT_TEMPLATE, payload, composition: squareComposition, drawables });
+    renderCompositionToCanvas({ canvas: c2, template: STATEMENT_TEMPLATE, payload, composition: squareComposition, drawables });
+    return JSON.stringify(c1._calls.drawImage) === JSON.stringify(c2._calls.drawImage);
+  })());
+
+  ok("D9. the image is drawn BEFORE any text — image is a backdrop layer, never on top", (() => {
+    const canvas = fakeCanvas(1080, 1350);
+    renderCompositionToCanvas({ canvas, template: STATEMENT_TEMPLATE, payload, composition, drawables: { heroImage: { source: "x", width: 100, height: 100 } } });
+    return canvas._calls.drawImage.length === 1 && canvas._calls.fillText.length > 0;
+  })());
+
+  ok("D10. presence of drawables does not change the TEXT drawn — identical fillText output with or without an image supplied", (() => {
+    const withoutImage = fakeCanvas(1080, 1350);
+    renderCompositionToCanvas({ canvas: withoutImage, template: STATEMENT_TEMPLATE, payload, composition });
+    const withImage = fakeCanvas(1080, 1350);
+    renderCompositionToCanvas({ canvas: withImage, template: STATEMENT_TEMPLATE, payload, composition, drawables: { heroImage: { source: "x", width: 100, height: 100 } } });
+    return JSON.stringify(withoutImage._calls.fillText) === JSON.stringify(withImage._calls.fillText);
+  })());
+}
+
+// ============================================================
+console.log("\nGATE A.7.1 — render.js stays DOM-free, synchronous, and network/storage-free");
+// ============================================================
+{
+  const renderSrc = readFileSync(fileURLToPath(new URL("../src/domains/election/design/render.js", import.meta.url)), "utf8");
+  const renderCodeOnly = renderSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+
+  ok("N1. render.js's code never constructs an Image(), never calls .decode()/.fetch(), never awaits anything", !/\bnew Image\(|\.decode\(|\bfetch\(|\bawait\b/.test(renderCodeOnly));
+  ok("N2. render.js's code never references document/window or Supabase/Storage", !/document\.|window\.|supabase|Storage\b/i.test(renderCodeOnly));
+  ok("N3. no function in render.js is declared async", !/\basync\s+function\b/.test(renderCodeOnly));
+  ok("N4. drawImageElements()/resolveCoverCrop() are synchronous, pure functions of their arguments — no closures over mutable module state beyond the fixed IMAGE_GEOMETRY table", /const IMAGE_GEOMETRY = Object\.freeze/.test(renderSrc));
 }
 
 // ============================================================

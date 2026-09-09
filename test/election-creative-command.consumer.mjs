@@ -21,7 +21,7 @@ import {
   interpretCreativeCommand, applyCreativeOperation,
 } from "../src/domains/election/design/creativeCommand.js";
 import { CREATIVE_TEMPLATES, CREATIVE_FAMILY, CREATIVE_FORMAT } from "../src/domains/election/design/templates.js";
-import { defaultCompositionFor, TEXT_ALIGNMENT } from "../src/domains/election/design/composition.js";
+import { defaultCompositionFor, TEXT_ALIGNMENT, ELEMENT_KIND } from "../src/domains/election/design/composition.js";
 
 let pass = 0, fail = 0;
 const ok = (n, c) => { if (c) { pass++; console.log(`  ok   ${n}`); } else { fail++; console.log(`  FAIL ${n}`); } };
@@ -122,8 +122,12 @@ console.log("\napplyCreativeOperation() — pure, immutable, and language-indepe
   ok("F1. applied", result.applied === true);
   ok("F2. the target element's alignment actually changed",
     result.composition.elements.find((el) => el.role === "headline").properties.alignment === TEXT_ALIGNMENT.CENTER);
-  ok("F3. every OTHER element is untouched",
-    result.composition.elements.filter((el) => el.role !== "headline")
+  // GATE A.7.1 — STATEMENT's default composition now also includes a
+  // non-text (IMAGE) element, which has no `alignment` property at all (see
+  // design/composition.js's own IMAGE property schema) — this check only
+  // ever meant "every other TEXT element", so it is scoped to TEXT kind.
+  ok("F3. every OTHER TEXT element is untouched",
+    result.composition.elements.filter((el) => el.kind === ELEMENT_KIND.TEXT && el.role !== "headline")
       .every((el) => el.properties.alignment === TEXT_ALIGNMENT.LEFT));
   ok("F4. the ORIGINAL composition object was never mutated", JSON.stringify(composition) === before);
   ok("F5. the result is frozen", Object.isFrozen(result.composition));

@@ -90,7 +90,7 @@ import { T } from "../../../os/forge.js";
 import { creativeFont } from "./typography.js";
 import { MOTION_PRESET, validateMotionSpecification } from "./motion.js";
 import { easeOutCubic, resolveProgress } from "./timing.js";
-import { TEXT_ALIGNMENT, validateCreativeComposition } from "./composition.js";
+import { ELEMENT_KIND, TEXT_ALIGNMENT, validateCreativeComposition } from "./composition.js";
 
 const COLOUR_TOKEN = { primary: T.teal, secondary: T.pink, accent: T.amber, surface: T.surface };
 
@@ -352,11 +352,106 @@ function resolveAlignedX(line, alignmentByRole, ctx, canvasWidth, marginX) {
   return Math.max(marginX, (canvasWidth - ctx.measureText(line.text).width) / 2);
 }
 
+// ============================================================
+// GATE A.7.1 — IMAGE ELEMENT FOUNDATION
+//
+// A fixed, code-owned, per-ROLE destination rectangle, expressed as
+// NORMALIZED (0..1) fractions of the canvas's own width/height — the same
+// "fraction of canvas dimensions" convention every other geometry constant
+// in this file already uses (MIN_CONTENT_TOP_OF_HEIGHT, marginX, maxWidth,
+// SLIDE_OFFSET_OF_WIDTH), so one rect naturally adapts across every
+// supported CREATIVE_FORMAT (square/portrait/story) with no per-format
+// override. Per-ROLE, not per-element and not per-template: this
+// foundation has exactly one image role (heroImage, declared only on the
+// STATEMENT/Hero family — see templates.js's own comment on why), and a
+// role's placement is a fixed design decision, never a per-instance
+// freeform x/y/width/height a caller could set — see design/composition.js's
+// own PROPERTY_SCHEMA[ELEMENT_KIND.IMAGE], which deliberately carries no
+// geometry field at all. A future gate may move this table onto each
+// template (letting different templates place the SAME role differently)
+// if that ever becomes a real requirement — this table's shape does not
+// need to anticipate that; moving it later is additive.
+//
+// heroImage: full-bleed (the entire canvas), drawn AFTER the flat
+// background fill and BEFORE any text — a photo backdrop with text
+// overlaid, never the reverse. This deliberately sidesteps the harder
+// "reserve space so text and image never overlap" layout problem:
+// layoutLines() (text positioning) is completely untouched by this gate,
+// proven by this file's own pre-existing static-equivalence tests, so text
+// always lands exactly where it always has, whether or not a hero image is
+// also present. Resolving mutual text/image layout is real future work,
+// not something this foundation gate claims to solve.
+const IMAGE_GEOMETRY = Object.freeze({
+  heroImage: Object.freeze({ x: 0, y: 0, width: 1, height: 1 }),
+});
+
+/** The `{sx, sy, sWidth, sHeight}` crop of a `drawable` (its own natural
+ *  `width`/`height`) that IMAGE_FIT.COVER draws into a `{dWidth, dHeight}`
+ *  destination — standard "object-fit: cover" math: scale up by the LARGER
+ *  of the two ratios so the destination is always fully covered, then crop
+ *  (never letterbox) whichever source dimension ends up wider than the
+ *  destination needs, centered. Pure arithmetic — never touches the
+ *  drawable itself beyond reading the two numbers already on it. */
+function resolveCoverCrop(drawable, dWidth, dHeight) {
+  const scale = Math.max(dWidth / drawable.width, dHeight / drawable.height);
+  const sWidth = dWidth / scale;
+  const sHeight = dHeight / scale;
+  return { sx: (drawable.width - sWidth) / 2, sy: (drawable.height - sHeight) / 2, sWidth, sHeight };
+}
+
+/** Draws every PRESENT image element of `composition` (one per declared
+ *  `template.imageSlots` role — see design/composition.js's own
+ *  defaultCompositionFor()) whose role has a matching entry in `drawables`,
+ *  in composition-declared order, before any text is drawn. `drawables` is
+ *  `{ [role]: { source, width, height } }` — an ALREADY-RESOLVED,
+ *  ready-to-draw image the caller supplies (an HTMLImageElement/
+ *  ImageBitmap/canvas already loaded/decoded, plus its own natural pixel
+ *  `width`/`height` so this function's cover-crop math never has to query
+ *  the source itself). This function never creates an Image(), never
+ *  fetches, never decodes, never awaits, and never touches document/
+ *  window — it only ever calls `ctx.drawImage()` with numbers it computes
+ *  itself from inputs it was already handed, the same DOM-free/synchronous
+ *  contract every other drawing function in this file already keeps. A
+ *  declared role with no matching `drawables` entry (or a malformed one —
+ *  non-positive width/height, or a role this table has no geometry for)
+ *  draws nothing, exactly like a text slot with no value — never a thrown
+ *  error for an absent-but-declared image. */
+function drawImageElements(ctx, composition, canvasWidth, canvasHeight, drawables) {
+  for (const element of composition.elements) {
+    if (element.kind !== ELEMENT_KIND.IMAGE) continue;
+    const drawable = drawables[element.role];
+    if (!drawable || !(drawable.width > 0) || !(drawable.height > 0)) continue;
+    const geometry = IMAGE_GEOMETRY[element.role];
+    if (!geometry) continue;
+
+    const dx = geometry.x * canvasWidth;
+    const dy = geometry.y * canvasHeight;
+    const dWidth = geometry.width * canvasWidth;
+    const dHeight = geometry.height * canvasHeight;
+
+    // GATE A.7.1 — exactly one fit mode exists today (IMAGE_FIT.COVER,
+    // already the only value validateCreativeComposition() can ever have
+    // accepted here); this is deliberately unconditional rather than a
+    // branch on `element.properties.fit`, the same "nothing to branch on
+    // yet" honesty design/composition.js's own IMAGE_FIT comment
+    // documents. Adding a second fit value later turns this into an
+    // if/else, mirroring resolveAlignedX()'s own alignment branch above.
+    const { sx, sy, sWidth, sHeight } = resolveCoverCrop(drawable, dWidth, dHeight);
+    ctx.drawImage(drawable.source, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight);
+  }
+}
+
 /** Draws a template's text slots — arranged per `composition`'s own closed,
  *  governed per-element `alignment` — plus the same opt-in identity.brand
- *  footer renderTemplateToCanvas() already draws. See this section's own
- *  header for the exact equivalence guarantee. */
-export function renderCompositionToCanvas({ canvas, template, payload = {}, composition }) {
+ *  footer renderTemplateToCanvas() already draws. GATE A.7.1 additionally
+ *  draws any declared IMAGE elements (see drawImageElements() above) as a
+ *  backdrop layer, via the new, optional `drawables` parameter — omitted
+ *  (defaults to `{}`), every existing caller draws exactly what it always
+ *  drew, byte-for-byte (proven by this file's own pre-existing
+ *  static-equivalence tests, which never pass `drawables` and therefore
+ *  never trigger a single drawImage() call). See this section's own
+ *  header for the exact TEXT equivalence guarantee. */
+export function renderCompositionToCanvas({ canvas, template, payload = {}, composition, drawables = {} }) {
   const validation = validateCreativeComposition({ composition, template });
   if (!validation.valid) {
     throw new Error(`renderCompositionToCanvas: ${validation.error}`);
@@ -367,6 +462,7 @@ export function renderCompositionToCanvas({ canvas, template, payload = {}, comp
   const ctx = canvas.getContext("2d");
 
   drawBackground(ctx, template, canvas.width, canvas.height);
+  drawImageElements(ctx, composition, canvas.width, canvas.height, drawables);
 
   ctx.fillStyle = T.black;
   ctx.textBaseline = "top";
