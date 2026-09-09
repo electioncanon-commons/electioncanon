@@ -102,6 +102,21 @@
 // asynchronous reset had not yet run). See React's own "adjusting state
 // when a prop changes" pattern — this is that pattern, not a novel one.
 //
+// GATE A.7.2A — REAL IMAGE INPUT. A real local photo, not a placeholder:
+// File -> createImageBitmap() -> {source, width, height} (the A.7.1
+// drawable contract) -> `heroImage` state -> `drawables` -> the SAME
+// unmodified renderCompositionToCanvas() the static viewport already used.
+// `composition` itself is untouched by any of this — the `heroImage` ROLE
+// it declares (A.7.1, Statement/Hero only) already exists; only the
+// drawable filling that role is new. Never persisted, never an asset row,
+// never Supabase Storage — same ephemeral contract as everything else in
+// this file. Export PNG consumes the exact same `drawables` the live
+// viewport just rendered (see onExportPng below) — a user can never see a
+// photo on screen and download a PNG without it. Image motion is
+// explicitly NOT implemented (see onPreviewMotion's own comment) — a
+// chosen hero image is visible in the static viewport and in the export,
+// not during "Preview motion" playback itself.
+//
 // EXPORT-ERROR LIFECYCLE (correctness fix). `exportError` is scoped to
 // Export PNG specifically, but the conditions that make an export fail
 // (bad content, an invalid composition, an unsupported family) are exactly
@@ -150,6 +165,16 @@ const DEFAULT_FPS = MOTION_FPS_OPTIONS.includes(30) ? 30 : MOTION_FPS_OPTIONS[0]
 const PRESET_LABEL = Object.freeze({ fade: "Fade", slideUp: "Slide up", staggerLines: "Staggered reveal" });
 const ALIGNMENT_LABEL = Object.freeze({ left: "Left", center: "Center" });
 
+// GATE A.7.2A — REAL IMAGE INPUT. A closed allow-list, checked against
+// `file.type` BEFORE any decode is attempted — treat the file as untrusted
+// input, same discipline design/electionDay/evidence.js's own ALLOWED_TYPES
+// already established for result-evidence photos. HEIC is deliberately
+// excluded here (unlike that file's upload-only path, which never needs to
+// decode HEIC locally): createImageBitmap() support for HEIC is
+// inconsistent across browsers, and this feature's whole point is local
+// decode + render, not upload-as-captured.
+const HERO_IMAGE_ALLOWED_TYPES = Object.freeze(["image/jpeg", "image/png", "image/webp"]);
+
 function emptyContentFor(template) {
   return Object.fromEntries(template.textSlots.map((s) => [s.id, ""]));
 }
@@ -181,10 +206,28 @@ export default function MotionPreview() {
   const [languageContext, setLanguageContext] = useState(() => defaultUserLanguageContext());
   const [commandText, setCommandText] = useState("");
   const [commandFeedback, setCommandFeedback] = useState(null); // {ok: boolean, message: string} | null
+  // GATE A.7.2A — REAL IMAGE INPUT. `heroImage` is the A.7.1 drawable shape
+  // ({source, width, height}) or null, held as its own sibling piece of
+  // ephemeral state — never folded into `composition`, which already
+  // declares the `heroImage` ROLE (A.7.1) and needs no change at all when a
+  // real photo is chosen. Never persisted, never an asset row, never
+  // Supabase — the same "ephemeral, discarded on close" contract this whole
+  // component already documents for `content`/`composition`.
+  const [heroImage, setHeroImage] = useState(null);
+  const [imageError, setImageError] = useState(null);
 
   const canvasRef = useRef(null);
   const rafRef = useRef(null);
   const startRef = useRef(0);
+  // GATE A.7.2A — bumped on every new file selection AND on every family
+  // switch. An in-flight createImageBitmap() decode captures the value at
+  // its own start and checks it again once decoded; a mismatch means a
+  // NEWER selection (or a family switch away from Statement/Hero) already
+  // superseded this attempt, so its bitmap is closed and discarded rather
+  // than ever reaching setHeroImage() — the exact guard against the
+  // "image A starts decoding, user picks image B, A resolves after B"
+  // race, and against a stale decode from a family the user has since left.
+  const heroImageGenerationRef = useRef(0);
   // Bumped every time the governed inputs change or this component
   // unmounts — an in-flight async continuation (the font-readiness await
   // in onPreviewMotion) or a scheduled rAF tick checks this before acting,
@@ -210,7 +253,23 @@ export default function MotionPreview() {
     setError(null);
     setCommandText("");
     setCommandFeedback(null);
+    // GATE A.7.2A — a hero image belongs to Statement/Hero specifically
+    // (the only family declaring an imageSlot at all — see templates.js).
+    // Leaving that family must not leave an orphaned bitmap open (the
+    // cleanup effect below closes whatever heroImage held the moment it
+    // flips to null), and bumping the generation here means a decode still
+    // in flight from the family just left can never land afterward.
+    heroImageGenerationRef.current += 1;
+    setHeroImage(null);
+    setImageError(null);
   }
+
+  // GATE A.7.2A — the ONE place `drawables` is built, from the SAME
+  // `heroImage` state both the live viewport render (below) and Export PNG
+  // consume — never two independently-constructed drawables objects, so
+  // "the export contains whatever the viewport is currently showing" is
+  // true by construction, not by keeping two things in sync by hand.
+  const drawables = heroImage ? { heroImage } : {};
 
   // GATE — EXPORT-ERROR LIFECYCLE (see this file's own header). A stale
   // Export PNG failure must not survive a corrective change made through
@@ -223,6 +282,18 @@ export default function MotionPreview() {
     setExportError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [familyKey, content, composition]);
+
+  // GATE A.7.2A — RESOURCE LIFECYCLE. The exact same "effect owns an
+  // external resource, its cleanup releases it" idiom this file already
+  // uses for `rafRef` below: this cleanup fires whenever `heroImage`
+  // changes (closing the PREVIOUS bitmap right before the new one takes
+  // over — image A is released the instant image B becomes current) AND on
+  // unmount (closing whatever is current). A failed decode never calls
+  // setHeroImage() at all (see onHeroImageFile below), so it never enters
+  // this effect's lifecycle in the first place — there is nothing to close.
+  useEffect(() => {
+    return () => { heroImage?.source?.close?.(); };
+  }, [heroImage]);
 
   // Draws the SETTLED STATIC composition — the default view, no
   // animation, isPlaying=false, no autoplay — via the composition-aware
@@ -254,7 +325,12 @@ export default function MotionPreview() {
       setSelectedElementId(null);
     } else {
       setError(null);
-      renderCompositionToCanvas({ canvas, template, payload, composition });
+      // GATE A.7.2A — `drawables` (built above from `heroImage` state) is
+      // the ONLY new argument here; render.js's own contract (established
+      // A.7.1) is otherwise unchanged — a role with no matching drawable
+      // (drawables: {} when no image has been chosen) draws nothing, same
+      // as before this gate existed.
+      renderCompositionToCanvas({ canvas, template, payload, composition, drawables });
       const bounds = computeElementSelectionBounds({ canvas, template, content });
       setSelectionBounds(bounds);
       setSelectedElementId((current) => (current != null && bounds.some((b) => b.role === current) ? current : null));
@@ -269,7 +345,7 @@ export default function MotionPreview() {
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [familyKey, preset, content, composition]);
+  }, [familyKey, preset, content, composition, heroImage]);
 
   const onPreviewMotion = useCallback(async () => {
     const session = ++sessionRef.current;
@@ -299,6 +375,17 @@ export default function MotionPreview() {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
+    // GATE A.7.2A — DELIBERATELY NOT PASSING `drawables` HERE. Image motion
+    // is explicitly out of scope for this gate, and render.js's own
+    // renderCompositionMotionFrameToCanvas() contract is NOT being expanded
+    // to accept one (see design/render.js's own A.7.1 header on why image
+    // support was scoped to the static renderer only). This means a chosen
+    // hero image does not appear WHILE "Preview motion" is animating, and
+    // the canvas shows the last-drawn motion frame (text only) until some
+    // other input change re-runs the static draw effect above — a known,
+    // accepted limitation of this gate, not an oversight (see this file's
+    // own A.7.2A implementation report).
+    //
     // reduced motion: use the SAME deterministic renderer/timing math to
     // reach the settled frame, never a separate hand-drawn "final state" —
     // totalFrames <= 1 makes design/timing.js's own resolveProgress()
@@ -358,7 +445,15 @@ export default function MotionPreview() {
       canvas.width = PREVIEW_DIMENSIONS.width;
       canvas.height = PREVIEW_DIMENSIONS.height;
 
-      renderCompositionToCanvas({ canvas, template, payload, composition });
+      // GATE A.7.2A — EXPORT/VIEWPORT PARITY. The SAME `drawables` the live
+      // viewport render effect above just used, never a second/independent
+      // one — see this file's own header on why `drawables` is built
+      // exactly once from `heroImage` state. A user can never see a photo
+      // in the viewport and then receive a PNG without it: whatever
+      // `renderCompositionToCanvas()` drew on screen is exactly what this
+      // call draws onto the export canvas, same composition, same payload,
+      // same drawables, only the destination canvas differs.
+      renderCompositionToCanvas({ canvas, template, payload, composition, drawables });
 
       const blob = await canvasToPngBlob(canvas);
       if (!blob) { setExportError("PNG rendering failed."); return; }
@@ -368,7 +463,7 @@ export default function MotionPreview() {
     } finally {
       setExportBusy(false);
     }
-  }, [template, content, composition, languageContext]);
+  }, [template, content, composition, languageContext, drawables]);
 
   /** GATE A.7.1 — updates exactly one of the three independent language
    *  settings, immutably, never touching the other two (see design/
@@ -376,6 +471,58 @@ export default function MotionPreview() {
   const setLanguage = (field) => (e) => setLanguageContext((c) => ({ ...c, [field]: e.target.value }));
 
   const setSlot = (slotId) => (e) => setContent((c) => ({ ...c, [slotId]: e.target.value }));
+
+  /** GATE A.7.2A — REAL IMAGE INPUT. File -> createImageBitmap() -> ready
+   *  drawable -> setHeroImage(), never Image()/object URLs/FileReader/a
+   *  remote URL, and never a File/Blob passed to render.js (see
+   *  design/render.js's own A.7.1 drawable contract — this function is the
+   *  ONLY place in this whole feature that touches File/createImageBitmap
+   *  at all). `composition` is never touched here — the `heroImage` ROLE
+   *  already exists in it (A.7.1); only the sibling `heroImage` DRAWABLE
+   *  state this function sets is new.
+   *
+   *  RACE SAFETY: `generation` is captured once, at the start, from
+   *  heroImageGenerationRef — bumped by every call to this function AND by
+   *  the family-switch reset above. If that ref's value has moved on by
+   *  the time decode finishes (a newer file was chosen, or the user left
+   *  Statement/Hero, while this decode was in flight), the freshly-decoded
+   *  bitmap is closed immediately and DISCARDED — it never reaches
+   *  setHeroImage(), so a slow-resolving older selection can never
+   *  overwrite a newer one. */
+  const onHeroImageFile = async (e) => {
+    const file = e.target.files?.[0] ?? null;
+    // Cleared immediately so selecting the SAME file again still fires
+    // onChange, and so this input never retains a reference to a File this
+    // component no longer cares about.
+    e.target.value = "";
+    if (!file) return;
+
+    const generation = ++heroImageGenerationRef.current;
+    setImageError(null);
+
+    if (!HERO_IMAGE_ALLOWED_TYPES.includes(file.type)) {
+      setImageError(`"${file.type || "that file type"}" is not supported — choose a JPEG, PNG, or WebP image.`);
+      return;
+    }
+
+    let bitmap;
+    try {
+      bitmap = await createImageBitmap(file);
+    } catch {
+      if (heroImageGenerationRef.current === generation) {
+        setImageError("That image could not be opened — it may be corrupted or in an unsupported format.");
+      }
+      return;
+    }
+
+    if (heroImageGenerationRef.current !== generation) {
+      // Superseded while decoding — never retained, never shown.
+      bitmap.close();
+      return;
+    }
+
+    setHeroImage({ source: bitmap, width: bitmap.width, height: bitmap.height });
+  };
 
   /** GATE A.6.4 — the ONE controlled property. Updates ONLY the selected
    *  element's own alignment, immutably, inside the SAME composition object
@@ -465,6 +612,20 @@ export default function MotionPreview() {
         </div>
       ))}
 
+      {/* GATE A.7.2A — REAL IMAGE INPUT. The smallest entry point: a native
+          file chooser per declared image slot (today, exactly one:
+          heroImage, on Statement/Hero only — see templates.js). No
+          drag/drop, no gallery, no thumbnail — the canvas itself, redrawn
+          by the live-preview effect above the moment heroImage state
+          changes, IS the preview. */}
+      {template.imageSlots?.map((slot) => (
+        <div key={slot.id} style={{ marginBottom: 9 }}>
+          <div style={{ fontFamily: UI, fontSize: 10.5, color: MUTED, marginBottom: 4 }}>{slot.label}</div>
+          <input type="file" accept={HERO_IMAGE_ALLOWED_TYPES.join(",")} onChange={onHeroImageFile}
+            aria-label={slot.label} style={{ fontFamily: UI, fontSize: 11.5, color: IVORY, display: "block" }} />
+        </div>
+      ))}
+
       <div style={{ marginBottom: 14, display: "flex", justifyContent: "center" }}>
         <div style={{ position: "relative", width: "100%", maxWidth: 320, aspectRatio: `${PREVIEW_DIMENSIONS.width} / ${PREVIEW_DIMENSIONS.height}` }}>
           <canvas ref={canvasRef} width={PREVIEW_DIMENSIONS.width} height={PREVIEW_DIMENSIONS.height}
@@ -542,6 +703,7 @@ export default function MotionPreview() {
       </div>
 
       {error && <div style={{ fontFamily: UI, fontSize: 12, color: PINK, marginTop: 10 }}>{friendlyError(error)}</div>}
+      {imageError && <div style={{ fontFamily: UI, fontSize: 12, color: PINK, marginTop: 10 }}>{friendlyError(imageError)}</div>}
       {exportError && <div style={{ fontFamily: UI, fontSize: 12, color: PINK, marginTop: 10 }}>{friendlyError(exportError)}</div>}
     </Panel>
   );
