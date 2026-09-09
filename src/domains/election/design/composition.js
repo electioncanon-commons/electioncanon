@@ -126,7 +126,11 @@ export function validateCreativeComposition({ composition, template } = {}) {
   if (!Array.isArray(composition.elements)) return STRUCTURE_ERROR;
   if (!template || typeof template !== "object") return STRUCTURE_ERROR;
 
-  if (composition.templateId !== template.id) {
+  // Normalized on both sides (?? null) so an absent/undefined template.id
+  // and this file's own defaultCompositionFor() (which normalizes a
+  // missing template.id to templateId: null) always agree — the factory
+  // and the validator must never disagree about what "no id" means.
+  if ((composition.templateId ?? null) !== (template.id ?? null)) {
     return { valid: false, error: `Composition templateId does not match template "${template.id}".` };
   }
 
@@ -166,8 +170,16 @@ export function validateCreativeComposition({ composition, template } = {}) {
     }
     seenRoles.add(role);
 
-    if (!properties || typeof properties !== "object") return STRUCTURE_ERROR;
+    // A plain object-like record only — not null (already excluded above),
+    // not an array (Object.entries([]) is empty, which would otherwise let
+    // an array silently pass with none of its required keys checked).
+    if (!properties || typeof properties !== "object" || Array.isArray(properties)) return STRUCTURE_ERROR;
     const schema = PROPERTY_SCHEMA[kind];
+    for (const requiredKey of Object.keys(schema)) {
+      if (!(requiredKey in properties)) {
+        return { valid: false, error: `Element kind "${kind}" is missing its required "${requiredKey}" property.` };
+      }
+    }
     for (const [key, value] of Object.entries(properties)) {
       const isValid = schema?.[key];
       if (typeof isValid !== "function") {

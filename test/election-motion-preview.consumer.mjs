@@ -234,6 +234,68 @@ console.log("\nOne controlled property — alignment (Gate A.6.4)");
   })());
 }
 
+// ============================================================
+console.log("\nAtomic family switch — no render can pair a new family with old composition/content (correctness fix)");
+// ============================================================
+{
+  ok("ATOMIC1. the family reset is no longer a plain useEffect keyed ONLY on [familyKey] — that pattern let one render commit the new template alongside the old composition/content before the effect ran", !/\}, \[familyKey\]\);/.test(codeOnly));
+  ok("ATOMIC2. an explicit render-phase reset guard compares against the family this component last reset for", /if\s*\(\s*familyKey\s*!==\s*resetForFamilyKey\s*\)\s*\{/.test(codeOnly));
+  ok("ATOMIC3. the render-phase guard resets content, composition, preset, and selection — the same fields the old effect reset", (() => {
+    const start = codeOnly.indexOf("if (familyKey !== resetForFamilyKey)");
+    const end = codeOnly.indexOf("useEffect", start);
+    const body = codeOnly.slice(start, end);
+    return /setContent\(emptyContentFor\(template\)\)/.test(body)
+      && /setComposition\(defaultCompositionFor\(template, GOLDEN_FORMAT\)\)/.test(body)
+      && /setPreset\(template\.motion\.supportedPresets\[0\]\)/.test(body)
+      && /setSelectedElementId\(null\)/.test(body);
+  })());
+  ok("ATOMIC4. the reset guard runs during render, not inside a useEffect — no `useEffect(` call appears between the guard's `const [resetForFamilyKey` declaration and its own closing brace", (() => {
+    const declStart = codeOnly.indexOf("const [resetForFamilyKey");
+    const guardStart = codeOnly.indexOf("if (familyKey !== resetForFamilyKey)", declStart);
+    const guardEnd = codeOnly.indexOf("\n  }", guardStart);
+    const between = codeOnly.slice(declStart, guardEnd);
+    return declStart !== -1 && guardStart !== -1 && guardEnd !== -1 && !/useEffect\(/.test(between);
+  })());
+}
+
+// ============================================================
+console.log("\nInvalid composition/payload state clears selection entirely, not just its visible boxes (correctness fix)");
+// ============================================================
+{
+  const liveEffectStart = codeOnly.indexOf("useEffect(() => {\n    const canvas = canvasRef.current;");
+  const liveEffectEnd = codeOnly.indexOf("}, [familyKey, preset, content, composition]);");
+  const liveEffectBody = codeOnly.slice(liveEffectStart, liveEffectEnd);
+
+  ok("SELCLEAR1. the live-preview effect exists and was located", liveEffectStart !== -1 && liveEffectEnd > liveEffectStart);
+  ok("SELCLEAR2. selectedElementId is cleared in BOTH invalid branches (payload invalid, composition invalid) in addition to the family-reset block — at least 3 total call sites", (codeOnly.match(/setSelectedElementId\(null\)/g) || []).length >= 3);
+  ok("SELCLEAR3. specifically, the payload-invalid branch clears the selection", (() => {
+    const branchStart = liveEffectBody.indexOf("if (!payloadValidation.valid)");
+    const branchEnd = liveEffectBody.indexOf("} else if (!compositionValidation.valid)");
+    const branch = liveEffectBody.slice(branchStart, branchEnd);
+    return /setSelectionBounds\(\[\]\)/.test(branch) && /setSelectedElementId\(null\)/.test(branch);
+  })());
+  ok("SELCLEAR4. specifically, the composition-invalid branch clears the selection", (() => {
+    const branchStart = liveEffectBody.indexOf("} else if (!compositionValidation.valid)");
+    const branchEnd = liveEffectBody.indexOf("} else {", branchStart);
+    const branch = liveEffectBody.slice(branchStart, branchEnd);
+    return /setSelectionBounds\(\[\]\)/.test(branch) && /setSelectedElementId\(null\)/.test(branch);
+  })());
+  ok("SELCLEAR5. the alignment control still renders only when selectedElement is truthy — with selectedElementId cleared, an invalid state renders no alignment control at all, so it cannot mutate stale selection state", /\{selectedElement\s*&&\s*\(/.test(codeOnly));
+}
+
+// ============================================================
+console.log("\nExport-error lifecycle — a stale export failure does not survive a corrective action (correctness fix)");
+// ============================================================
+{
+  ok("EXPERR1. onExportPng still clears exportError at the start of every attempt (unchanged baseline)", (() => {
+    const start = codeOnly.indexOf("onExportPng = useCallback");
+    const body = codeOnly.slice(start, start + 300);
+    return /setExportError\(null\)/.test(body);
+  })());
+  ok("EXPERR2. a dedicated effect clears exportError whenever family/content/composition change — the same three corrective-action categories this fix targets", /useEffect\(\(\) => \{\s*setExportError\(null\);/.test(codeOnly));
+  ok("EXPERR3. that effect's dependency array is exactly [familyKey, content, composition] — not merely [familyKey], so editing content or an alignment change (which updates composition) also clears the stale banner", /\}, \[familyKey, content, composition\]\);/.test(codeOnly));
+}
+
 console.log(`\n${pass}/${pass + fail} assertions passed${fail ? ` — ${fail} FAILED` : ""}\n`);
 console.log("Browser-acceptance checklist still requiring MANUAL verification (not automated by this file):");
 console.log("  - Preview opens and the settled static frame renders immediately");

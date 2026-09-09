@@ -59,16 +59,17 @@
 // instead of here — the page layer is where DOM-triggering belongs in
 // this codebase; domain modules stay pure and Node-testable.
 //
-// GATE A.5.5.2 — SHARED LAYOUT, ONE SOURCE OF TRUTH. computeTextLayout()
-// and computeBrandLine() below are a STRAIGHT EXTRACTION of exactly the
-// font-size/wrapping/line-height/positioning math renderTemplateToCanvas()
-// already had inline — no formula changed, only relocated. Both this
-// file's static renderTemplateToCanvas() and the new
-// renderMotionFrameToCanvas() call the SAME two functions to get the SAME
-// canonical text positions; the only thing that differs between them is
-// whether those positions are drawn at full opacity immediately (static)
-// or with a per-frame opacity/offset applied first (motion). This
-// extraction is proven behavior-preserving by
+// GATE A.5.5.2 — SHARED LAYOUT, ONE SOURCE OF TRUTH. layoutLines()
+// (GATE A.6.3 — internally buildLineStructure() + positionLines(), see
+// those functions' own headers) and computeBrandLine() below are a
+// STRAIGHT EXTRACTION of exactly the font-size/wrapping/line-height/
+// positioning math renderTemplateToCanvas() already had inline — no
+// formula changed, only relocated. Both this file's static
+// renderTemplateToCanvas() and the new renderMotionFrameToCanvas() call
+// the SAME functions to get the SAME canonical text positions; the only
+// thing that differs between them is whether those positions are drawn at
+// full opacity immediately (static) or with a per-frame opacity/offset
+// applied first (motion). This extraction is proven behavior-preserving by
 // test/election-motion-frame-render.consumer.mjs's static-equivalence
 // section, which pins renderTemplateToCanvas()'s exact fillRect/fillText/
 // fillStyle sequence for several fixtures against a baseline captured
@@ -112,37 +113,67 @@ function wrapText(ctx, text, font, maxW) {
 // here, exactly as every render before this gate always did.
 const MIN_CONTENT_TOP_OF_HEIGHT = 0.12;
 
-/** THE single source of truth for where every text-slot line sits on the
- *  canvas. Given `ctx` (used ONLY for `measureText`'s font-metric
- *  measurement, via wrapText — exactly the same dependency-injected use
- *  `ctx` already had before this extraction; this function never creates
- *  a canvas or a context, never touches `document`/`window`, and never
- *  draws anything itself), a `template`'s own `textSlots` (walked in
- *  their declared order, identically to the pre-extraction inline loop),
- *  the payload's `content`, and a `startY` (GATE A.6.7 — previously a
- *  hardcoded `canvasHeight * 0.12` inline here; now the caller's own
- *  computeContentStartY() decides it, see that function's own header),
- *  returns a flat, ordered array of `{slotId, isHeadline, text, x, y, font,
- *  lineHeight}` — one entry per WRAPPED LINE, in draw order. A slot with no
- *  value is skipped, exactly like the original inline `if (!value)
- *  continue`. Pure: never mutates `content` or `template`, never depends on
- *  wall-clock time, returns a fresh array every call. */
-function computeTextLayout({ ctx, template, content, canvasWidth, canvasHeight, startY }) {
-  const marginX = canvasWidth * 0.08;
+/** THE single EXPENSIVE step: wraps every present text slot's value into
+ *  its own font/lineHeight and array of wrapped-line strings, via `ctx`'s
+ *  `measureText` (used ONLY for that font-metric measurement — this
+ *  function never creates a canvas or a context, never touches
+ *  `document`/`window`, and never draws anything itself). Walked in
+ *  `template.textSlots`' own declared order. A slot with no value (or a
+ *  whitespace-only one — see the comment below) is skipped, exactly like
+ *  the original inline `if (!value) continue`. Deliberately carries NO
+ *  notion of `y`/`startY` at all: wrapping, font, and line-height are
+ *  entirely independent of where the block ends up vertically, which is
+ *  exactly what lets positionLines() below be called more than once
+ *  (cheaply) without ever re-running this expensive step. Pure: never
+ *  mutates `content` or `template`, never depends on wall-clock time,
+ *  returns a fresh array every call. */
+function buildLineStructure({ ctx, template, content, canvasWidth }) {
   const maxWidth = canvasWidth * 0.84;
-  let y = startY;
-  const lines = [];
+  const structure = [];
 
   for (const slot of template.textSlots) {
     const value = content[slot.id];
-    if (!value) continue;
+    // A whitespace-only value is truthy but wraps to zero lines — treated
+    // as empty here, exactly like `undefined`/`""`/`null` already are, so
+    // a slot that draws nothing never consumes selection geometry or the
+    // trailing layout gap below either (see this file's own header — a
+    // required element must never become an invisible, unselectable one
+    // that still shifts everything after it).
+    if (!value || (typeof value === "string" && !value.trim())) continue;
     const isHeadline = slot.id === "headline";
     const font = creativeFont({ role: isHeadline ? "headline" : "body", sizePx: canvasWidth * (isHeadline ? 0.055 : 0.03) });
     const wrapped = wrapText(ctx, value, font, maxWidth);
     const lineHeight = Math.round(canvasWidth * (isHeadline ? 0.065 : 0.04));
-    for (const text of wrapped) {
-      lines.push({ slotId: slot.id, isHeadline, text, x: marginX, y, font, lineHeight });
-      y += lineHeight;
+    structure.push({ slotId: slot.id, isHeadline, wrapped, font, lineHeight });
+  }
+
+  return structure;
+}
+
+/** THE single source of truth for where every already-wrapped text-slot
+ *  line sits on the canvas, given a `startY` (GATE A.6.7 — previously a
+ *  hardcoded `canvasHeight * 0.12` inline here; now the caller decides it,
+ *  see layoutLines() below) — a flat, ordered array of `{slotId,
+ *  isHeadline, text, x, y, font, lineHeight}`, one entry per wrapped line,
+ *  in draw order. Purely additive arithmetic (no measureText, no
+ *  wrapping) — cheap enough to call more than once per render. Given the
+ *  SAME `structure` and the SAME `startY`, this reproduces the exact same
+ *  accumulation order (and therefore the exact same floating-point
+ *  values) as the original single-pass computeTextLayout(startY) this
+ *  file used before Gate A.6.3 — critical, because shifting an already-
+ *  positioned line's `y` by a separate later addition is NOT guaranteed
+ *  bit-identical to accumulating from `startY` directly (floating-point
+ *  addition is not associative); this function always accumulates from
+ *  the real `startY` from the start, never by post-hoc shifting. */
+function positionLines(structure, canvasWidth, startY) {
+  const marginX = canvasWidth * 0.08;
+  let y = startY;
+  const lines = [];
+
+  for (const entry of structure) {
+    for (const text of entry.wrapped) {
+      lines.push({ slotId: entry.slotId, isHeadline: entry.isHeadline, text, x: marginX, y, font: entry.font, lineHeight: entry.lineHeight });
+      y += entry.lineHeight;
     }
     y += canvasWidth * 0.02;
   }
@@ -150,17 +181,22 @@ function computeTextLayout({ ctx, template, content, canvasWidth, canvasHeight, 
   return lines;
 }
 
-/** GATE A.6.7 — BOUNDED VERTICAL CENTERING. Determines the ONE `startY`
- *  every caller of computeTextLayout() must use, so the static renderer,
- *  the motion renderer, and the composition renderer(s) always agree on
- *  where the content block begins — never a second/independent centering
- *  calculation. The content block's true rendered height is measured by
- *  calling computeTextLayout() itself with `startY: 0` (the SAME wrapping/
- *  line-height progression every renderer already uses — this never
- *  estimates or invents a new spacing constant) and reading off where its
- *  own last line actually landed. `identity.brand` is NEVER part of this
- *  measurement — computeBrandLine() anchors to the canvas's own bottom
- *  edge independently and is untouched by this function.
+/** GATE A.6.7 — BOUNDED VERTICAL CENTERING. GATE A.6.3 — ONE WRAP PASS,
+ *  NOT TWO. Every caller that needs positioned lines must agree on where
+ *  the content block begins — never a second/independent centering
+ *  calculation — and must never pay for a second wrapText()/measureText()
+ *  sweep to get there.
+ *
+ *  buildLineStructure() (the expensive step) runs EXACTLY ONCE here.
+ *  positionLines() (cheap, arithmetic-only) runs twice: once at `startY:
+ *  0` purely to measure the block's true rendered height, once more at
+ *  the real, derived `startY` — this second call accumulates from that
+ *  real value directly, so its output is bit-identical to what the
+ *  original combined computeTextLayout(startY) produced when called with
+ *  that same real startY (see positionLines()'s own comment on why a
+ *  post-hoc shift is NOT an option here). `identity.brand` is NEVER part
+ *  of this measurement — computeBrandLine() anchors to the canvas's own
+ *  bottom edge independently and is untouched by this function.
  *
  *  centeredY = (canvasHeight - measuredBlockHeight) / 2
  *  startY    = max(MIN_CONTENT_TOP_OF_HEIGHT * canvasHeight, centeredY)
@@ -170,13 +206,26 @@ function computeTextLayout({ ctx, template, content, canvasWidth, canvasHeight, 
  *  anchor) falls back to that EXACT original anchor — content can never be
  *  centered off the top of the canvas, and existing overflow/clipping
  *  behavior for tall content is completely unaffected, since it was always
- *  measured from that same 12% starting point before this gate. */
-function computeContentStartY({ ctx, template, content, canvasWidth, canvasHeight }) {
-  const measured = computeTextLayout({ ctx, template, content, canvasWidth, canvasHeight, startY: 0 });
+ *  measured from that same 12% starting point before this gate.
+ *
+ *  Before this gate, every one of this file's 5 layout call sites ran the
+ *  full expensive wrap/measure pass TWICE per render (once purely to
+ *  measure, once more for the real positions) — in the 30fps motion
+ *  preview loop this doubled real per-frame wrapText()/measureText() cost
+ *  for a result the first pass had already fully determined. This
+ *  function reuses ONE wrap pass for both, proven behavior-preserving by
+ *  this file's own pre-existing equivalence tests (test/election-creative-
+ *  composition.consumer.mjs, test/election-motion-frame-render.
+ *  consumer.mjs), which pin the exact fillRect/fillText/fillStyle
+ *  sequence this change must reproduce unchanged, byte-for-byte. */
+function layoutLines({ ctx, template, content, canvasWidth, canvasHeight }) {
+  const structure = buildLineStructure({ ctx, template, content, canvasWidth });
+  const measured = positionLines(structure, canvasWidth, 0);
   const blockHeight = measured.length ? measured[measured.length - 1].y + measured[measured.length - 1].lineHeight : 0;
   const centeredY = (canvasHeight - blockHeight) / 2;
   const minimumY = canvasHeight * MIN_CONTENT_TOP_OF_HEIGHT;
-  return Math.max(minimumY, centeredY);
+  const startY = Math.max(minimumY, centeredY);
+  return positionLines(structure, canvasWidth, startY);
 }
 
 /** The identity.brand footer credit's own layout, computed the same way
@@ -230,8 +279,7 @@ export function renderTemplateToCanvas({ canvas, template, payload = {} }) {
   ctx.fillStyle = T.black;
   ctx.textBaseline = "top";
 
-  const startY = computeContentStartY({ ctx, template, content, canvasWidth: canvas.width, canvasHeight: canvas.height });
-  const lines = computeTextLayout({ ctx, template, content, canvasWidth: canvas.width, canvasHeight: canvas.height, startY });
+  const lines = layoutLines({ ctx, template, content, canvasWidth: canvas.width, canvasHeight: canvas.height });
   for (const line of lines) {
     ctx.font = line.font;
     ctx.fillText(line.text, line.x, line.y);
@@ -253,7 +301,7 @@ export function renderTemplateToCanvas({ canvas, template, payload = {} }) {
 // unaware this function exists. renderCompositionToCanvas() is a NEW,
 // SEPARATE function for the new design/composition.js seam.
 //
-// Reuses the SAME computeTextLayout()/computeBrandLine()/drawBackground()
+// Reuses the SAME layoutLines()/computeBrandLine()/drawBackground()
 // this file's own static renderer already uses — no second layout
 // algorithm, no duplicated positioning math. The ONLY thing a
 // CreativeComposition can change is a text element's horizontal (x)
@@ -275,6 +323,35 @@ export function renderTemplateToCanvas({ canvas, template, payload = {} }) {
 // applies to which element), so it must defend that path itself.
 // ============================================================
 
+// GATE A.6.3 — the two pieces renderCompositionToCanvas() and
+// renderCompositionMotionFrameToCanvas() each independently duplicated
+// byte-for-byte. Extracted here, used by BOTH — and ONLY those two:
+// renderTemplateToCanvas()/renderMotionFrameToCanvas() have no composition
+// and no alignment concept at all, so they are untouched by this gate.
+
+/** `{role: alignment}` for every element in `composition` — the one place
+ *  either composition renderer needs to ask "what alignment does THIS
+ *  slot's role carry." */
+function alignmentByRoleFor(composition) {
+  return Object.fromEntries(composition.elements.map((el) => [el.role, el.properties.alignment]));
+}
+
+/** The x a given text `line` should draw at, given the owning element's
+ *  alignment. Left (or an element this composition never mentions) keeps
+ *  the line's own already-computed `line.x` (positionLines()'s left
+ *  margin) unchanged. Centered is clamped to that SAME left margin —
+ *  never further left than that, matching this renderer's existing bounds
+ *  policy (overflow, when it happens, only ever runs off the RIGHT edge,
+ *  exactly as left alignment has always behaved). Without this clamp, one
+ *  unbreakable wrapped word/token wider than the canvas can drive the
+ *  naive center formula negative, clipping text off the LEFT edge — a
+ *  failure mode left alignment never has. */
+function resolveAlignedX(line, alignmentByRole, ctx, canvasWidth, marginX) {
+  const alignment = alignmentByRole[line.slotId] ?? TEXT_ALIGNMENT.LEFT;
+  if (alignment !== TEXT_ALIGNMENT.CENTER) return line.x;
+  return Math.max(marginX, (canvasWidth - ctx.measureText(line.text).width) / 2);
+}
+
 /** Draws a template's text slots — arranged per `composition`'s own closed,
  *  governed per-element `alignment` — plus the same opt-in identity.brand
  *  footer renderTemplateToCanvas() already draws. See this section's own
@@ -294,13 +371,12 @@ export function renderCompositionToCanvas({ canvas, template, payload = {}, comp
   ctx.fillStyle = T.black;
   ctx.textBaseline = "top";
 
-  const alignmentByRole = Object.fromEntries(composition.elements.map((el) => [el.role, el.properties.alignment]));
-  const startY = computeContentStartY({ ctx, template, content, canvasWidth: canvas.width, canvasHeight: canvas.height });
-  const lines = computeTextLayout({ ctx, template, content, canvasWidth: canvas.width, canvasHeight: canvas.height, startY });
+  const alignmentByRole = alignmentByRoleFor(composition);
+  const marginX = canvas.width * 0.08;
+  const lines = layoutLines({ ctx, template, content, canvasWidth: canvas.width, canvasHeight: canvas.height });
   for (const line of lines) {
     ctx.font = line.font;
-    const alignment = alignmentByRole[line.slotId] ?? TEXT_ALIGNMENT.LEFT;
-    const x = alignment === TEXT_ALIGNMENT.CENTER ? (canvas.width - ctx.measureText(line.text).width) / 2 : line.x;
+    const x = resolveAlignedX(line, alignmentByRole, ctx, canvas.width, marginX);
     ctx.fillText(line.text, x, line.y);
   }
 
@@ -314,27 +390,28 @@ export function renderCompositionToCanvas({ canvas, template, payload = {}, comp
 // ============================================================
 // GATE A.6.3 — ELEMENT SELECTION GEOMETRY
 //
-// The SAME geometry computeTextLayout() already computes for drawing —
-// reused, never recomputed. This is the smallest additive API needed for
-// viewport click-selection: it calls the existing private
-// computeTextLayout() exactly once and only AGGREGATES its per-line output
-// into one bounding box per element (per declared text slot), never
-// reimplements wrapping, font sizing, or positioning. No second layout
-// calculation exists anywhere in this file.
+// The SAME geometry layoutLines() already computes for drawing — reused,
+// never recomputed. This is the smallest additive API needed for viewport
+// click-selection: it calls the existing private layoutLines() (which
+// itself runs the expensive wrap/measure pass, buildLineStructure(),
+// exactly once) and only AGGREGATES its per-line output into one bounding
+// box per element (per declared text slot), never reimplements wrapping,
+// font sizing, or positioning. No second layout calculation exists
+// anywhere in this file.
 //
 // Deliberately generous/simple boxes: x/width always span the SAME text
-// column computeTextLayout() itself wraps within (marginX..maxWidth),
-// regardless of a text element's own alignment — so a selection target
-// stays valid and stable even if design/composition.js changes that
-// element's horizontal alignment later; only the vertical span (y..bottom)
-// is derived from where that slot's own lines actually landed. Page-layer
+// column the layout itself wraps within (marginX..maxWidth), regardless
+// of a text element's own alignment — so a selection target stays valid
+// and stable even if design/composition.js changes that element's
+// horizontal alignment later; only the vertical span (y..bottom) is
+// derived from where that slot's own lines actually landed. Page-layer
 // callers turn these into DOM overlay hit targets — this function itself
 // draws nothing and never touches document/window.
 // ============================================================
 
 /** Returns one `{role, x, y, width, height}` bounding box per PRESENT text
  *  element (one per declared textSlot with a non-empty value), in canvas-
- *  pixel space, derived entirely from computeTextLayout()'s own per-line
+ *  pixel space, derived entirely from layoutLines()'s own per-line
  *  output — never a duplicated layout pass. `canvas` is read only for its
  *  `width`/`height`/`getContext()` — the exact same shape every other
  *  exported function in this file already accepts. */
@@ -342,8 +419,7 @@ export function computeElementSelectionBounds({ canvas, template, content = {} }
   const ctx = canvas.getContext("2d");
   const marginX = canvas.width * 0.08;
   const maxWidth = canvas.width * 0.84;
-  const startY = computeContentStartY({ ctx, template, content, canvasWidth: canvas.width, canvasHeight: canvas.height });
-  const lines = computeTextLayout({ ctx, template, content, canvasWidth: canvas.width, canvasHeight: canvas.height, startY });
+  const lines = layoutLines({ ctx, template, content, canvasWidth: canvas.width, canvasHeight: canvas.height });
 
   const boundsByRole = new Map();
   for (const line of lines) {
@@ -460,8 +536,7 @@ export function renderMotionFrameToCanvas({ canvas, template, payload = {}, moti
   ctx.textBaseline = "top";
 
   const progress = resolveProgress(frameIndex, totalFrames);
-  const startY = computeContentStartY({ ctx, template, content, canvasWidth: canvas.width, canvasHeight: canvas.height });
-  const lines = computeTextLayout({ ctx, template, content, canvasWidth: canvas.width, canvasHeight: canvas.height, startY });
+  const lines = layoutLines({ ctx, template, content, canvasWidth: canvas.width, canvasHeight: canvas.height });
   const presentSlotIds = [];
   for (const line of lines) if (!presentSlotIds.includes(line.slotId)) presentSlotIds.push(line.slotId);
 
@@ -494,7 +569,7 @@ export function renderMotionFrameToCanvas({ canvas, template, payload = {}, moti
 // renderMotionFrameToCanvas() is UNCHANGED by this gate — every existing
 // caller keeps working exactly as before. renderCompositionMotionFrameToCanvas()
 // is a NEW, separate function reusing the SAME motionStateForLine()/
-// computeTextLayout()/computeBrandLine()/drawBackground() this file's
+// layoutLines()/computeBrandLine()/drawBackground() this file's
 // existing motion renderer already uses — the only addition is applying a
 // composition element's own closed `alignment` property to that element's
 // x, exactly the same branch renderCompositionToCanvas() already applies
@@ -535,9 +610,9 @@ export function renderCompositionMotionFrameToCanvas({ canvas, template, payload
   ctx.textBaseline = "top";
 
   const progress = resolveProgress(frameIndex, totalFrames);
-  const alignmentByRole = Object.fromEntries(composition.elements.map((el) => [el.role, el.properties.alignment]));
-  const startY = computeContentStartY({ ctx, template, content, canvasWidth: canvas.width, canvasHeight: canvas.height });
-  const lines = computeTextLayout({ ctx, template, content, canvasWidth: canvas.width, canvasHeight: canvas.height, startY });
+  const alignmentByRole = alignmentByRoleFor(composition);
+  const marginX = canvas.width * 0.08;
+  const lines = layoutLines({ ctx, template, content, canvasWidth: canvas.width, canvasHeight: canvas.height });
   const presentSlotIds = [];
   for (const line of lines) if (!presentSlotIds.includes(line.slotId)) presentSlotIds.push(line.slotId);
 
@@ -545,8 +620,9 @@ export function renderCompositionMotionFrameToCanvas({ canvas, template, payload
     const { alpha, yOffset } = motionStateForLine({ preset: motionSpec.preset, progress, slotId: line.slotId, presentSlotIds }, canvas.width);
     ctx.globalAlpha = alpha;
     ctx.font = line.font;
-    const alignment = alignmentByRole[line.slotId] ?? TEXT_ALIGNMENT.LEFT;
-    const x = alignment === TEXT_ALIGNMENT.CENTER ? (canvas.width - ctx.measureText(line.text).width) / 2 : line.x;
+    // Same left-margin clamp as renderCompositionToCanvas() above — see
+    // resolveAlignedX()'s own comment.
+    const x = resolveAlignedX(line, alignmentByRole, ctx, canvas.width, marginX);
     ctx.fillText(line.text, x, line.y + yOffset);
   }
   ctx.globalAlpha = 1;

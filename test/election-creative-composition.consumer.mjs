@@ -108,6 +108,67 @@ console.log("\nvalidateCreativeComposition()");
 }
 
 // ============================================================
+console.log("\nvalidateCreativeComposition() — required property presence (correctness fix)");
+//
+// A missing required property (e.g. an element with properties: {}) must
+// never pass merely because there is nothing present to reject.
+// ============================================================
+{
+  const format = CREATIVE_FORMAT.PORTRAIT;
+  const valid = defaultCompositionFor(STATEMENT_TEMPLATE, format);
+
+  ok("21a. alignment present and valid -> passes (unchanged baseline)", validateCreativeComposition({ composition: valid, template: STATEMENT_TEMPLATE }).valid === true);
+
+  const missingAlignment = { ...valid, elements: valid.elements.map((el, i) => (i === 0 ? { ...el, properties: {} } : el)) };
+  ok("21b. alignment missing (properties: {}) -> fails, never silently valid", validateCreativeComposition({ composition: missingAlignment, template: STATEMENT_TEMPLATE }).valid === false);
+
+  const invalidAlignmentValue = { ...valid, elements: valid.elements.map((el, i) => (i === 0 ? { ...el, properties: { alignment: "diagonal" } } : el)) };
+  ok("21c. alignment present but invalid -> fails (same as existing check 10, re-asserted here alongside the presence check)", validateCreativeComposition({ composition: invalidAlignmentValue, template: STATEMENT_TEMPLATE }).valid === false);
+
+  const unrelatedOnly = { ...valid, elements: valid.elements.map((el, i) => (i === 0 ? { ...el, properties: { color: "red" } } : el)) };
+  ok("21d. an unrelated property does not substitute for the missing required alignment property", validateCreativeComposition({ composition: unrelatedOnly, template: STATEMENT_TEMPLATE }).valid === false);
+}
+
+// ============================================================
+console.log("\nvalidateCreativeComposition() — properties must be a plain object-like record (correctness fix)");
+//
+// properties: [] previously passed because Object.entries([]) is empty.
+// null/array/primitive values must all be rejected the same as any other
+// malformed structure; a genuinely valid object must still pass.
+// ============================================================
+{
+  const format = CREATIVE_FORMAT.PORTRAIT;
+  const base = defaultCompositionFor(STATEMENT_TEMPLATE, format);
+  const withProperties = (properties) => ({ ...base, elements: base.elements.map((el, i) => (i === 0 ? { ...el, properties } : el)) });
+
+  ok("22a. properties: {} -> fails (missing required alignment, covered again here for this section's own completeness)", validateCreativeComposition({ composition: withProperties({}), template: STATEMENT_TEMPLATE }).valid === false);
+  ok("22b. properties: [] -> fails — an array must never pass as a properties record", validateCreativeComposition({ composition: withProperties([]), template: STATEMENT_TEMPLATE }).valid === false);
+  ok("22c. properties: null -> fails", validateCreativeComposition({ composition: withProperties(null), template: STATEMENT_TEMPLATE }).valid === false);
+  ok("22d. properties: \"left\" (a string) -> fails", validateCreativeComposition({ composition: withProperties("left"), template: STATEMENT_TEMPLATE }).valid === false);
+  ok("22e. properties: 1 (a number) -> fails", validateCreativeComposition({ composition: withProperties(1), template: STATEMENT_TEMPLATE }).valid === false);
+  ok("22f. properties: true (a boolean) -> fails", validateCreativeComposition({ composition: withProperties(true), template: STATEMENT_TEMPLATE }).valid === false);
+  ok("22g. a genuinely valid plain object -> passes (the structural check is not accidentally over-restrictive)", validateCreativeComposition({ composition: withProperties({ alignment: TEXT_ALIGNMENT.LEFT }), template: STATEMENT_TEMPLATE }).valid === true);
+  ok("22h. an array WITH the required key present still fails — arrays are never a valid record regardless of contents ([\"alignment\"] as a key never applies to an array index)", validateCreativeComposition({ composition: withProperties(["left"]), template: STATEMENT_TEMPLATE }).valid === false);
+}
+
+// ============================================================
+console.log("\ndefaultCompositionFor()/validateCreativeComposition() — templateId contract agreement (correctness fix)");
+//
+// defaultCompositionFor() normalizes a missing template.id to
+// templateId: null; validateCreativeComposition() must agree with that
+// exact same normalization, never reject the factory's own honest output.
+// ============================================================
+{
+  const templateWithNoId = { ...STATEMENT_TEMPLATE, id: undefined };
+  const composition = defaultCompositionFor(templateWithNoId, CREATIVE_FORMAT.PORTRAIT);
+  ok("23a. defaultCompositionFor() normalizes a missing template.id to templateId: null", composition.templateId === null);
+  ok("23b. validateCreativeComposition() accepts that SAME composition against that SAME template — the factory and the validator agree", validateCreativeComposition({ composition, template: templateWithNoId }).valid === true);
+
+  ok("23c. a real template (every CREATIVE_TEMPLATES entry has a real id) is completely unaffected by this normalization", validateCreativeComposition({ composition: defaultCompositionFor(STATEMENT_TEMPLATE, CREATIVE_FORMAT.PORTRAIT), template: STATEMENT_TEMPLATE }).valid === true);
+  ok("23d. a composition whose templateId genuinely mismatches a template that DOES have a real id is still rejected — normalization never masks a real mismatch", validateCreativeComposition({ composition: { ...defaultCompositionFor(STATEMENT_TEMPLATE, CREATIVE_FORMAT.PORTRAIT), templateId: "some-other-template" }, template: STATEMENT_TEMPLATE }).valid === false);
+}
+
+// ============================================================
 console.log("\nComposition / PublicCreativePayload separation");
 // ============================================================
 {
@@ -271,7 +332,7 @@ console.log("\nElement selection geometry (Gate A.6.3) — reuses the SAME layou
   const fnStart = renderSrc.indexOf("export function computeElementSelectionBounds");
   const fnEnd = renderSrc.indexOf("\n}", fnStart);
   const fnBody = renderSrc.slice(fnStart, fnEnd);
-  ok("SEL6. computeElementSelectionBounds() calls the EXISTING computeTextLayout() — it does not reimplement layout", /computeTextLayout\(/.test(fnBody));
+  ok("SEL6. computeElementSelectionBounds() calls the EXISTING layoutLines() — it does not reimplement layout (Gate A.6.3: layoutLines() is the shared helper computeTextLayout() was split into, to remove a redundant wrap/measure pass — see render.js's own header)", /\blayoutLines\(/.test(fnBody));
   ok("SEL7. no second layout calculation exists — this function contains no `for (const slot of template.textSlots)` loop of its own (that loop belongs to computeTextLayout() alone)", !/for\s*\(\s*const\s+slot\s+of\s+template\.textSlots\s*\)/.test(fnBody));
   ok("SEL8. computeElementSelectionBounds() never calls wrapText() or creativeFont() directly — all font/wrapping decisions stay inside computeTextLayout()", !/\bwrapText\(|\bcreativeFont\(/.test(fnBody));
 }
@@ -321,6 +382,119 @@ console.log("\nUnified static/motion composition pipeline (Gate A.6.5) — the s
   const leftHeadlineMid = midFrameLeft._calls.fillText.find((c) => c.text.includes("Every vote counts"));
   ok("MOTION3. the selected alignment is preserved mid-animation, not just at the settled frame", centeredHeadlineMid.x !== leftHeadlineMid.x);
   ok("MOTION4. mid-animation alpha (fade progress) is identical regardless of alignment — alignment affects only x, never the motion timing/opacity itself", centeredHeadlineMid.alpha === leftHeadlineMid.alpha);
+}
+
+// ============================================================
+console.log("\nrender.js — whitespace-only text-slot content is treated as empty (correctness fix)");
+//
+// A whitespace-only value is truthy but wraps to zero lines. It must never
+// consume a selection bounding box or the trailing layout gap — treated
+// identically to an absent/empty slot in every downstream consumer of
+// computeTextLayout() (drawing, selection geometry, layout spacing).
+// ============================================================
+{
+  const template = STATEMENT_TEMPLATE;
+
+  ok("24a. empty string body -> no selection box for body (unchanged baseline)", (() => {
+    const bounds = computeElementSelectionBounds({ canvas: fakeCanvas(1080, 1350), template, content: { headline: "Every vote counts", body: "" } });
+    return !bounds.some((b) => b.role === "body");
+  })());
+
+  ok("24b. spaces-only body -> no selection box for body (the fix)", (() => {
+    const bounds = computeElementSelectionBounds({ canvas: fakeCanvas(1080, 1350), template, content: { headline: "Every vote counts", body: "   " } });
+    return !bounds.some((b) => b.role === "body");
+  })());
+
+  ok("24c. tabs/newlines-only body -> no selection box for body", (() => {
+    const bounds = computeElementSelectionBounds({ canvas: fakeCanvas(1080, 1350), template, content: { headline: "Every vote counts", body: "\t\n\t" } });
+    return !bounds.some((b) => b.role === "body");
+  })());
+
+  ok("24d. normal text body -> still selectable (no regression)", (() => {
+    const bounds = computeElementSelectionBounds({ canvas: fakeCanvas(1080, 1350), template, content: { headline: "Every vote counts", body: "Register before Friday" } });
+    return bounds.some((b) => b.role === "body");
+  })());
+
+  ok("24e. text with surrounding whitespace is still drawn/selectable — only PURELY whitespace content is treated as empty", (() => {
+    const bounds = computeElementSelectionBounds({ canvas: fakeCanvas(1080, 1350), template, content: { headline: "Every vote counts", body: "  Register before Friday  " } });
+    return bounds.some((b) => b.role === "body");
+  })());
+
+  // Downstream layout: a whitespace-only slot must not leave a phantom
+  // trailing gap that shifts everything after it. The trailing-slot case
+  // alone can't observe this (nothing is drawn after the LAST slot), so
+  // this uses the CTA template's own 3-slot layout (headline, body, cta) —
+  // a whitespace-only MIDDLE slot (body) must not push the slot after it
+  // (cta) down by the phantom gap, nor consume a selection box itself.
+  const ctaTemplate = CREATIVE_TEMPLATES[CREATIVE_FAMILY.CTA];
+  const ctaComposition = defaultCompositionFor(ctaTemplate, CREATIVE_FORMAT.PORTRAIT);
+
+  ok("24f. a whitespace-only MIDDLE slot produces byte-identical output to that slot being entirely absent — no phantom gap shifts the slot after it", (() => {
+    const payloadA = { content: { headline: "Every vote counts", cta: "Register now" }, visual: {}, identity: {} };
+    const payloadB = { content: { headline: "Every vote counts", body: "   ", cta: "Register now" }, visual: {}, identity: {} };
+    const canvasA = fakeCanvas(1080, 1350);
+    renderCompositionToCanvas({ canvas: canvasA, template: ctaTemplate, payload: payloadA, composition: ctaComposition });
+    const canvasB = fakeCanvas(1080, 1350);
+    renderCompositionToCanvas({ canvas: canvasB, template: ctaTemplate, payload: payloadB, composition: ctaComposition });
+    return JSON.stringify(canvasA._calls.fillText) === JSON.stringify(canvasB._calls.fillText)
+      && JSON.stringify(canvasA._calls.fillRect) === JSON.stringify(canvasB._calls.fillRect);
+  })());
+
+  ok("24g. a whitespace-only middle slot (body) gets no selection box of its own, and the slot after it (cta) is positioned exactly where it would be with body entirely absent", (() => {
+    const boundsWithWhitespace = computeElementSelectionBounds({ canvas: fakeCanvas(1080, 1350), template: ctaTemplate, content: { headline: "Every vote counts", body: "   ", cta: "Register now" } });
+    const boundsWithoutBody = computeElementSelectionBounds({ canvas: fakeCanvas(1080, 1350), template: ctaTemplate, content: { headline: "Every vote counts", cta: "Register now" } });
+    const ctaWith = boundsWithWhitespace.find((b) => b.role === "cta");
+    const ctaWithout = boundsWithoutBody.find((b) => b.role === "cta");
+    return !boundsWithWhitespace.some((b) => b.role === "body") && ctaWith.y === ctaWithout.y;
+  })());
+}
+
+// ============================================================
+console.log("\nrender.js — center alignment never clips off the left edge (correctness fix)");
+//
+// A single unbreakable wrapped word/token wider than the canvas can drive
+// the naive `(canvasWidth - textWidth) / 2` formula negative. The fix
+// clamps center-aligned x to the SAME left margin every left-aligned line
+// already starts at, never further left than that.
+// ============================================================
+{
+  const template = STATEMENT_TEMPLATE;
+  const format = CREATIVE_FORMAT.PORTRAIT;
+  const marginX = 1080 * 0.08;
+
+  function centeredHeadlineX(headlineText) {
+    const composition = {
+      ...defaultCompositionFor(template, format),
+      elements: defaultCompositionFor(template, format).elements.map((el) => (el.role === "headline" ? { ...el, properties: { alignment: TEXT_ALIGNMENT.CENTER } } : el)),
+    };
+    const canvas = fakeCanvas(1080, 1350);
+    renderCompositionToCanvas({ canvas, template, payload: { content: { headline: headlineText }, visual: {}, identity: {} }, composition });
+    return canvas._calls.fillText.filter((c) => c.text.length > 0);
+  }
+
+  // Normal centered text: short enough to wrap normally, x stays comfortably clear of the margin.
+  const normal = centeredHeadlineX("Every vote counts");
+  ok("25a. normal centered text: x is at or beyond the left margin", normal.every((l) => l.x >= marginX - 0.001));
+  ok("25b. normal centered text: x is not pinned to the margin (it actually centers, this is not a permanently-clamped value)", normal.some((l) => l.x > marginX + 1));
+
+  // A single unbreakable "word" (no spaces) far wider than the canvas —
+  // wrapText cannot split it, so it becomes one over-wide line.
+  const unbreakable = centeredHeadlineX("x".repeat(80));
+  ok("26a. long unbreakable centered word: x is clamped to the left margin, never negative", unbreakable.length === 1 && unbreakable[0].x === marginX);
+  ok("26b. long unbreakable centered word: x is never negative (the exact bug — text clipped off the left edge)", unbreakable[0].x >= 0);
+
+  // Long multiline centered text: every wrapped line independently respects the same floor.
+  const multiline = centeredHeadlineX("Rally this Saturday in every single ward across the whole state and beyond for every registered voter");
+  ok("27a. long multiline centered text wraps to more than one line", multiline.length > 1);
+  ok("27b. every wrapped centered line's x respects the left-margin floor", multiline.every((l) => l.x >= marginX - 0.001));
+
+  // Equivalent left-alignment behavior is completely unaffected by this
+  // clamp — it only ever applies to the CENTER branch.
+  const leftComposition = defaultCompositionFor(template, format);
+  const leftCanvas = fakeCanvas(1080, 1350);
+  renderCompositionToCanvas({ canvas: leftCanvas, template, payload: { content: { headline: "x".repeat(80) }, visual: {}, identity: {} }, composition: leftComposition });
+  const leftLine = leftCanvas._calls.fillText.find((c) => c.text.length > 0);
+  ok("28. equivalent left-aligned oversized text is untouched by this fix — x is exactly the margin, as it always was", leftLine.x === marginX);
 }
 
 console.log(`\n${pass}/${pass + fail} assertions passed${fail ? ` — ${fail} FAILED` : ""}\n`);

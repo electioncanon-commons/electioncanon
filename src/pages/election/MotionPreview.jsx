@@ -61,6 +61,57 @@
 // export.js's own exportApprovedVariant(). No second renderer, no second
 // payload shape, no persistence: this component still never calls
 // assetsApi or the Supabase client.
+//
+// GATE A.7.1 — LANGUAGE CONTEXT. Three independent settings (design/
+// language.js's UserLanguageContext: interfaceLanguage, aiInteractionLanguage,
+// creativeOutputLanguage), defaulted to English and changeable independently
+// from design/language.js's own closed six-language list — the SAME registry
+// os/studio/languageCapability.js already maintains for Ask ElectionCanon,
+// never a second one. Honesty first: nothing in this component yet
+// translates the interface, talks to an AI, or generates creative text in
+// another language — these three controls exist so the architecture is
+// language-ready (see the A.7 brief), and validateUserLanguageContext() is
+// checked alongside payload/composition validation before Export PNG runs,
+// the same "no canvas until every governed input is valid" discipline every
+// other value in this pipeline already gets. No AI, no translation, no
+// voice — see design/language.js's own header for what is deliberately not
+// built yet.
+//
+// GATE A.7.5 — CREATIVE COMMAND BOX. A plain text input lets the user type
+// an instruction ("center the headline") instead of clicking the alignment
+// buttons — both paths call the exact same setComposition() with the exact
+// same immutable update shape (design/creativeCommand.js's
+// applyCreativeOperation() mirrors setSelectedAlignment()'s own
+// elements.map()), so a command can never reach the canvas through a
+// different, less-governed path than a click already uses. Understood only
+// in English right now (design/creativeCommand.js's own INTERPRETED_LANGUAGES) —
+// a non-English or unrecognised instruction is refused with a plain reason,
+// never guessed at.
+//
+// FAMILY SWITCH IS AN ATOMIC, RENDER-PHASE RESET (correctness fix). Content/
+// composition/preset/selection are reset the moment `familyKey` changes
+// during THIS component's own render — a plain `if (familyKey !==
+// resetForFamilyKey) { ...setState calls... }` at the top of the function
+// body, not inside a `useEffect(() => {...}, [familyKey])`. React discards
+// and immediately re-runs a render that calls setState during rendering,
+// before that render's output is ever committed or any effect fires — so
+// the live-preview effect below (keyed on [familyKey, ..., composition])
+// can never observe "new family's template paired with the old family's
+// composition," a combination an effect-based reset could momentarily let
+// through (one commit where the template already changed but the
+// asynchronous reset had not yet run). See React's own "adjusting state
+// when a prop changes" pattern — this is that pattern, not a novel one.
+//
+// EXPORT-ERROR LIFECYCLE (correctness fix). `exportError` is scoped to
+// Export PNG specifically, but the conditions that make an export fail
+// (bad content, an invalid composition, an unsupported family) are exactly
+// the inputs this file's OTHER actions already correct. A dedicated effect
+// below clears `exportError` whenever family/content/composition change —
+// the same three "corrective action" categories this gate's own review
+// named — so a stale export failure banner never survives a fix made
+// through some other control (the alignment buttons, a creative command,
+// simply editing a text field). Starting a fresh Export PNG attempt still
+// clears and recomputes it independently, as it always has.
 // ============================================================
 
 import { useState, useRef, useEffect, useCallback } from "react";
@@ -70,6 +121,8 @@ import { renderCompositionToCanvas, renderCompositionMotionFrameToCanvas, comput
 import { defaultCompositionFor, validateCreativeComposition, TEXT_ALIGNMENT_LIST } from "../../domains/election/design/composition.js";
 import { validateMotionSpecification, MOTION_DURATION_MS, MOTION_FPS_OPTIONS } from "../../domains/election/design/motion.js";
 import { deriveTotalFrames, frameIndexForElapsed } from "../../domains/election/design/timing.js";
+import { CREATIVE_LANGUAGE_LIST, LANGUAGE_CONTEXT_FIELD, defaultUserLanguageContext, validateUserLanguageContext } from "../../domains/election/design/language.js";
+import { interpretCreativeCommand, applyCreativeOperation } from "../../domains/election/design/creativeCommand.js";
 import { Label, Panel, DemoTag, friendlyError, ensureCreativeFontsReady, downloadBlob, UI, IVORY, MUTED, TEAL, PINK, BORDER, BLACK, inputStyle } from "./shared.jsx";
 
 // GATE A.5.6 — GOLDEN CREATIVE FORMAT. One canonical format/dimension pair
@@ -122,6 +175,12 @@ export default function MotionPreview() {
   const [exportError, setExportError] = useState(null);
   const [selectionBounds, setSelectionBounds] = useState([]);
   const [selectedElementId, setSelectedElementId] = useState(null);
+  // GATE A.7.1 — never reset by family switch: a session's language
+  // choices are a property of the PERSON using the studio, not of whichever
+  // creative family they happen to be looking at.
+  const [languageContext, setLanguageContext] = useState(() => defaultUserLanguageContext());
+  const [commandText, setCommandText] = useState("");
+  const [commandFeedback, setCommandFeedback] = useState(null); // {ok: boolean, message: string} | null
 
   const canvasRef = useRef(null);
   const rafRef = useRef(null);
@@ -133,18 +192,37 @@ export default function MotionPreview() {
   // after unmount.
   const sessionRef = useRef(0);
 
-  // Selecting a different family resets the ephemeral content and preset
-  // — never persisted, so there is nothing to save/discard, just a fresh
-  // local draft for the newly selected template's own declared slots and
-  // its own declared motion presets.
-  useEffect(() => {
+  // GATE — ATOMIC FAMILY SWITCH (see this file's own header). Selecting a
+  // different family resets the ephemeral content/composition/preset/
+  // selection — never persisted, so there is nothing to save/discard, just
+  // a fresh local draft for the newly selected template's own declared
+  // slots and motion presets. Done here, during render, comparing against
+  // the family this component last reset FOR — never inside a
+  // useEffect(() => {...}, [familyKey]), which would let one render commit
+  // with the new template but the old composition/content first.
+  const [resetForFamilyKey, setResetForFamilyKey] = useState(familyKey);
+  if (familyKey !== resetForFamilyKey) {
+    setResetForFamilyKey(familyKey);
     setContent(emptyContentFor(template));
     setComposition(defaultCompositionFor(template, GOLDEN_FORMAT));
     setPreset(template.motion.supportedPresets[0]);
     setSelectedElementId(null);
     setError(null);
+    setCommandText("");
+    setCommandFeedback(null);
+  }
+
+  // GATE — EXPORT-ERROR LIFECYCLE (see this file's own header). A stale
+  // Export PNG failure must not survive a corrective change made through
+  // any OTHER control (family switch, editing a text field, an alignment
+  // click, a creative command) — every one of those changes `familyKey`,
+  // `content`, or `composition`, so clearing here covers all of them
+  // uniformly. Export PNG itself still independently clears/recomputes
+  // this on every attempt (onExportPng, below), unchanged.
+  useEffect(() => {
+    setExportError(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [familyKey]);
+  }, [familyKey, content, composition]);
 
   // Draws the SETTLED STATIC composition — the default view, no
   // animation, isPlaying=false, no autoplay — via the composition-aware
@@ -164,9 +242,16 @@ export default function MotionPreview() {
     if (!payloadValidation.valid) {
       setError(payloadValidation.error);
       setSelectionBounds([]);
+      // An invalid composition/payload state has no valid selection to
+      // speak of — clearing only the visible boxes while leaving
+      // selectedElementId set would leave the alignment picker rendered
+      // and able to mutate composition with no canvas feedback confirming
+      // anything. Treat invalid state as "nothing is selected."
+      setSelectedElementId(null);
     } else if (!compositionValidation.valid) {
       setError(compositionValidation.error);
       setSelectionBounds([]);
+      setSelectedElementId(null);
     } else {
       setError(null);
       renderCompositionToCanvas({ canvas, template, payload, composition });
@@ -262,6 +347,9 @@ export default function MotionPreview() {
     const compositionValidation = validateCreativeComposition({ composition, template });
     if (!compositionValidation.valid) { setExportError(compositionValidation.error); return; }
 
+    const languageValidation = validateUserLanguageContext(languageContext);
+    if (!languageValidation.valid) { setExportError(languageValidation.error); return; }
+
     setExportBusy(true);
     try {
       await ensureCreativeFontsReady();
@@ -280,7 +368,12 @@ export default function MotionPreview() {
     } finally {
       setExportBusy(false);
     }
-  }, [template, content, composition]);
+  }, [template, content, composition, languageContext]);
+
+  /** GATE A.7.1 — updates exactly one of the three independent language
+   *  settings, immutably, never touching the other two (see design/
+   *  language.js's own header on why they must never be coupled). */
+  const setLanguage = (field) => (e) => setLanguageContext((c) => ({ ...c, [field]: e.target.value }));
 
   const setSlot = (slotId) => (e) => setContent((c) => ({ ...c, [slotId]: e.target.value }));
 
@@ -299,6 +392,31 @@ export default function MotionPreview() {
     }));
   };
 
+  /** GATE A.7.5 — the natural-language path to the SAME change
+   *  setSelectedAlignment() above makes by button click. interpretCreativeCommand()
+   *  resolves WHAT should change (using the current selection as context —
+   *  A.7.6, no element id ever typed); applyCreativeOperation() then makes
+   *  that change to the SAME composition state the live preview and Export
+   *  PNG already use. A refusal (unrecognised instruction, non-English
+   *  input, a role this template does not declare) never touches
+   *  composition at all — only a plain, honest reason is shown. */
+  const onSubmitCommand = (e) => {
+    e.preventDefault();
+    const interpreted = interpretCreativeCommand({ message: commandText, template, selectedElementId });
+    if (!interpreted.understood) {
+      setCommandFeedback({ ok: false, message: interpreted.reason });
+      return;
+    }
+    const result = applyCreativeOperation({ operation: interpreted.operation, composition });
+    if (!result.applied) {
+      setCommandFeedback({ ok: false, message: result.error });
+      return;
+    }
+    setComposition(result.composition);
+    setCommandFeedback({ ok: true, message: `Done — ${interpreted.operation.targetRole} is now ${interpreted.operation.alignment}-aligned.` });
+    setCommandText("");
+  };
+
   return (
     <Panel accent={TEAL}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
@@ -311,6 +429,34 @@ export default function MotionPreview() {
         style={{ ...inputStyle, marginBottom: 14 }}>
         {CREATIVE_TEMPLATE_LIST.map((t) => <option key={t.family} value={t.family}>{t.label}</option>)}
       </select>
+
+      {/* GATE A.7.1 — three independent language settings. Not yet wired to
+          any real interface translation, AI conversation, or creative-text
+          generation — see this file's own header and design/language.js. */}
+      <Label>Language</Label>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 8, marginBottom: 14 }}>
+        <div>
+          <div style={{ fontFamily: UI, fontSize: 10.5, color: MUTED, marginBottom: 4 }}>Interface</div>
+          <select value={languageContext.interfaceLanguage} onChange={setLanguage(LANGUAGE_CONTEXT_FIELD.INTERFACE)}
+            aria-label="Interface language" style={inputStyle}>
+            {CREATIVE_LANGUAGE_LIST.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={{ fontFamily: UI, fontSize: 10.5, color: MUTED, marginBottom: 4 }}>Talk to AI in</div>
+          <select value={languageContext.aiInteractionLanguage} onChange={setLanguage(LANGUAGE_CONTEXT_FIELD.AI_INTERACTION)}
+            aria-label="AI interaction language" style={inputStyle}>
+            {CREATIVE_LANGUAGE_LIST.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={{ fontFamily: UI, fontSize: 10.5, color: MUTED, marginBottom: 4 }}>Graphic text in</div>
+          <select value={languageContext.creativeOutputLanguage} onChange={setLanguage(LANGUAGE_CONTEXT_FIELD.CREATIVE_OUTPUT)}
+            aria-label="Creative output language" style={inputStyle}>
+            {CREATIVE_LANGUAGE_LIST.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}
+          </select>
+        </div>
+      </div>
 
       {template.textSlots.map((slot) => (
         <div key={slot.id} style={{ marginBottom: 9 }}>
@@ -354,6 +500,27 @@ export default function MotionPreview() {
           ))}
         </div>
       )}
+
+      {/* GATE A.7.5 — the same alignment change above, reachable by typing
+          instead of clicking. Understood in English only right now (see
+          design/creativeCommand.js's INTERPRETED_LANGUAGES). */}
+      <form onSubmit={onSubmitCommand} style={{ marginBottom: 14 }}>
+        <div style={{ fontFamily: UI, fontSize: 10.5, color: MUTED, marginBottom: 4 }}>Tell the studio what to change</div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input value={commandText} onChange={(e) => setCommandText(e.target.value)}
+            placeholder='e.g. "center the headline"' aria-label="Creative command" style={{ ...inputStyle, marginBottom: 0, flex: 1 }} />
+          <button type="submit"
+            style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase",
+              padding: "0 16px", border: `1px solid ${BORDER}`, background: "transparent", color: IVORY, cursor: "pointer" }}>
+            Apply
+          </button>
+        </div>
+        {commandFeedback && (
+          <div style={{ fontFamily: UI, fontSize: 11.5, marginTop: 6, color: commandFeedback.ok ? TEAL : PINK }}>
+            {commandFeedback.message}
+          </div>
+        )}
+      </form>
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         {template.motion.supportedPresets.length > 1 && (
