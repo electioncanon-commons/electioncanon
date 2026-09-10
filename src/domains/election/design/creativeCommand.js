@@ -80,9 +80,24 @@
 // ============================================================
 
 import { detectLanguage } from "../../../os/studio/language.js";
-import { TEXT_ALIGNMENT, TEXT_ALIGNMENT_LIST } from "./composition.js";
+import { ELEMENT_KIND, TEXT_ALIGNMENT, TEXT_ALIGNMENT_LIST } from "./composition.js";
 
-export const CREATIVE_OPERATION_KIND = Object.freeze({ SET_ALIGNMENT: "SET_ALIGNMENT" });
+// GATE A.7.2B — SET_OPACITY joins SET_ALIGNMENT: a second UI-originated
+// structured operation, still exactly the "smallest operation set that
+// proves the architecture" discipline this file's own header documents —
+// one property per element kind (alignment for TEXT, opacity for IMAGE),
+// never a generic {property, value} escape hatch. Unlike SET_ALIGNMENT,
+// SET_OPACITY is never reachable from interpretCreativeCommand() at all in
+// this gate — it is constructed directly by the UI control that owns it
+// (MotionPreview.jsx) and handed straight to applyCreativeOperation(),
+// deliberately bypassing natural-language interpretation entirely (a
+// slider is not typed text — see this gate's own report on why no
+// natural-language image command exists yet). This is still "the same
+// operation path" the A.7 brief's future AI-operations architecture asks
+// for: applyCreativeOperation() does not know or care whether its input
+// came from a click, a slider, typed English, or a future model — only
+// interpretCreativeCommand() (the language layer) is command-specific.
+export const CREATIVE_OPERATION_KIND = Object.freeze({ SET_ALIGNMENT: "SET_ALIGNMENT", SET_OPACITY: "SET_OPACITY" });
 export const CREATIVE_OPERATION_KIND_LIST = Object.freeze(Object.values(CREATIVE_OPERATION_KIND));
 
 // The one honesty marker this file carries — see the header above. Widening
@@ -244,25 +259,59 @@ export function applyCreativeOperation({ operation, composition } = {}) {
     return { applied: false, error: "Creative composition is missing or malformed.", composition: null };
   }
 
-  // GATE A.6.3 — a plain guard, not a switch. CREATIVE_OPERATION_KIND_LIST
-  // has exactly one member (SET_ALIGNMENT) and the guard above already
-  // refuses any `operation.kind` outside it, so a `default`/fallback
-  // branch here was provably unreachable dead code — no value can ever
-  // reach this function with a `kind` other than SET_ALIGNMENT. Adding a
-  // second operation kind later is still a one-line addition (a new
-  // top-level `if`), the same "adding a case is a line here" discipline
-  // this file's own header already documents.
+  // GATE A.6.3, widened A.7.2B — a plain sequence of guards, not a switch.
+  // CREATIVE_OPERATION_KIND_LIST now has exactly two members and the guard
+  // above already refuses any `operation.kind` outside them, so the final
+  // fallback below remains provably unreachable dead code — it exists only
+  // because a function like this should never silently fall through with
+  // no return. Adding a third operation kind later is still a one-line
+  // addition (a new top-level `if`), the same "adding a case is a line
+  // here" discipline this file's own header already documents.
+  //
+  // GATE A.7.2B — ELEMENT KIND SAFETY. Both branches below resolve the
+  // target element ONCE and check its `kind` before touching its
+  // properties — SET_ALIGNMENT only ever applies to a TEXT element,
+  // SET_OPACITY only ever to an IMAGE element. Before this gate,
+  // SET_ALIGNMENT matched by role alone; had an operation ever named an
+  // IMAGE role, it would have silently written a `properties.alignment`
+  // key that element's own closed schema does not declare, and the
+  // resulting composition would only fail much later, at
+  // validateCreativeComposition() — a confusing, indirect failure for what
+  // is really an operation-level mistake. Both branches now fail closed
+  // immediately, with a clear, specific reason, instead.
   if (operation.kind === CREATIVE_OPERATION_KIND.SET_ALIGNMENT) {
     if (!TEXT_ALIGNMENT_LIST.includes(operation.alignment)) {
       return { applied: false, error: `"${operation.alignment}" is not a recognised alignment.`, composition: null };
     }
-    if (!composition.elements.some((el) => el.role === operation.targetRole)) {
+    const target = composition.elements.find((el) => el.role === operation.targetRole);
+    if (!target) {
       return { applied: false, error: `No element with role "${operation.targetRole}" exists in this composition.`, composition: null };
+    }
+    if (target.kind !== ELEMENT_KIND.TEXT) {
+      return { applied: false, error: `Element "${operation.targetRole}" is not a text element — alignment does not apply.`, composition: null };
     }
     const nextComposition = {
       ...composition,
       elements: composition.elements.map((el) =>
         el.role === operation.targetRole ? { ...el, properties: { ...el.properties, alignment: operation.alignment } } : el),
+    };
+    return { applied: true, error: null, composition: Object.freeze(nextComposition) };
+  }
+  if (operation.kind === CREATIVE_OPERATION_KIND.SET_OPACITY) {
+    if (typeof operation.opacity !== "number" || !(operation.opacity >= 0) || !(operation.opacity <= 1)) {
+      return { applied: false, error: `"${operation.opacity}" is not a valid opacity — it must be a number between 0 and 1.`, composition: null };
+    }
+    const target = composition.elements.find((el) => el.role === operation.targetRole);
+    if (!target) {
+      return { applied: false, error: `No element with role "${operation.targetRole}" exists in this composition.`, composition: null };
+    }
+    if (target.kind !== ELEMENT_KIND.IMAGE) {
+      return { applied: false, error: `Element "${operation.targetRole}" is not an image element — opacity does not apply.`, composition: null };
+    }
+    const nextComposition = {
+      ...composition,
+      elements: composition.elements.map((el) =>
+        el.role === operation.targetRole ? { ...el, properties: { ...el.properties, opacity: operation.opacity } } : el),
     };
     return { applied: true, error: null, composition: Object.freeze(nextComposition) };
   }

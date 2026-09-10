@@ -437,8 +437,47 @@ function drawImageElements(ctx, composition, canvasWidth, canvasHeight, drawable
     // documents. Adding a second fit value later turns this into an
     // if/else, mirroring resolveAlignedX()'s own alignment branch above.
     const { sx, sy, sWidth, sHeight } = resolveCoverCrop(drawable, dWidth, dHeight);
+    // GATE A.7.2B — `opacity` is applied via ctx.globalAlpha exactly the
+    // same set/reset discipline renderMotionFrameToCanvas() already uses
+    // for its own per-line fades below: set immediately before the one
+    // drawImage() call this property governs, reset to 1 immediately
+    // after, so no other drawing operation in this function (or a
+    // sibling image element's own draw) can ever inherit a stale alpha.
+    ctx.globalAlpha = element.properties.opacity;
     ctx.drawImage(drawable.source, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight);
+    ctx.globalAlpha = 1;
   }
+}
+
+/** GATE A.7.2B — the IMAGE counterpart to computeElementSelectionBounds()
+ *  above: one `{role, x, y, width, height}` bounding box per IMAGE element
+ *  actually present in `composition` (there is no "absent value" concept
+ *  for images the way an empty text slot has one — every declared image
+ *  ROLE in the composition gets a selection box, whether or not a drawable
+ *  has been supplied for it yet; see this gate's own report on why an
+ *  unpopulated image slot is still a legitimate selection target). Derived
+ *  from the SAME `IMAGE_GEOMETRY` table drawImageElements() itself reads —
+ *  never a second, independently-declared coordinate system; a role this
+ *  table has no geometry for (should never happen for a validated
+ *  composition) is silently skipped, exactly like drawImageElements()'s
+ *  own defensive `if (!geometry) continue`. `canvas` is read only for its
+ *  `width`/`height` — no `getContext()`/drawing call happens here, this
+ *  function never draws anything. */
+export function computeImageElementSelectionBounds({ canvas, composition }) {
+  const bounds = [];
+  for (const element of composition.elements) {
+    if (element.kind !== ELEMENT_KIND.IMAGE) continue;
+    const geometry = IMAGE_GEOMETRY[element.role];
+    if (!geometry) continue;
+    bounds.push({
+      role: element.role,
+      x: geometry.x * canvas.width,
+      y: geometry.y * canvas.height,
+      width: geometry.width * canvas.width,
+      height: geometry.height * canvas.height,
+    });
+  }
+  return bounds;
 }
 
 /** Draws a template's text slots — arranged per `composition`'s own closed,
@@ -742,7 +781,40 @@ export function canvasToPngBlob(canvas) {
   });
 }
 
+// ============================================================
+// GATE A.7.2B.1 — INVALID-STATE CANVAS CLEARING (correctness fix)
+//
+// A real browser-discovered defect, confirmed by direct canvas pixel
+// sampling: a page-layer caller (MotionPreview.jsx) that transitions into
+// a state it cannot render at all (payload/composition temporarily
+// invalid — e.g. mid family switch, before the newly-selected template's
+// required content has been typed) has no way to erase whatever the
+// PREVIOUS valid render left on the canvas. None of this file's own
+// renderers are the right place to fix this — they only ever run when
+// their own inputs ARE valid (each throws or is never called otherwise);
+// the caller needs a small, separate, deterministic operation for the
+// "I cannot render anything right now" case specifically.
+// ============================================================
+
+/** The smallest possible "erase whatever is currently painted" operation —
+ *  a plain, full-canvas-bounds `ctx.clearRect()`, the native browser
+ *  guarantee that every pixel in that rect is erased regardless of what
+ *  was drawn there before, by any of this file's renderers or otherwise.
+ *  Deliberately NOT a `fillRect(backgroundColour)`: that would invent a
+ *  new visual composition for a state this file's renderers were never
+ *  asked to compose (see this gate's own header) — clearing is the
+ *  content-neutral, always-safe choice, and leaves the canvas in exactly
+ *  the same undrawn state it starts in before its first-ever valid
+ *  render. Takes a plain `canvas` (not an options object), matching
+ *  canvasToPngBlob()'s own single-argument shape above — there is nothing
+ *  else this operation needs. */
+export function clearCanvas(canvas) {
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+}
+
 export default {
   renderTemplateToCanvas, renderMotionFrameToCanvas, canvasToPngBlob,
   renderCompositionToCanvas, computeElementSelectionBounds, renderCompositionMotionFrameToCanvas,
+  computeImageElementSelectionBounds, clearCanvas,
 };

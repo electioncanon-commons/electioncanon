@@ -117,6 +117,49 @@
 // chosen hero image is visible in the static viewport and in the export,
 // not during "Preview motion" playback itself.
 //
+// GATE A.7.2B.1 — INVALID-STATE CANVAS CLEARING (correctness fix, found via
+// real browser acceptance testing). The live-preview effect's two invalid
+// branches (payload invalid, composition invalid — see that effect below)
+// never used to touch the canvas at all, so it kept showing whatever the
+// LAST VALID render had drawn — most visibly, a previous family's hero
+// photo lingering after a family switch, until the newly-selected
+// template's own required content was filled in (confirmed via direct
+// canvas pixel sampling in a real browser, not guessed at). Both branches
+// now call design/render.js's own clearCanvas() (a plain, full-bounds
+// ctx.clearRect(), never a fillRect(colour) — no new visual is invented
+// for a state nothing in render.js was ever asked to compose). Valid-
+// render behavior is completely unchanged: this fix touches only the two
+// branches that never rendered anything in the first place.
+//
+// GATE A.7.2B — IMAGE SELECTION + CONTEXTUAL CONTROL. Extends the EXISTING
+// selection-bounds architecture (never a second one): `selectionBounds` is
+// now the concatenation of design/render.js's new
+// computeImageElementSelectionBounds() (IMAGE roles, derived from the SAME
+// IMAGE_GEOMETRY the renderer itself draws from) FIRST, then the existing
+// computeElementSelectionBounds() (TEXT roles) SECOND. Order is load-
+// bearing, not cosmetic: heroImage's own geometry is full-bleed (the whole
+// canvas), so its overlay button would otherwise sit on top of and swallow
+// every click meant for headline/body — rendering image bounds first means
+// their DOM buttons paint underneath, and the later (text) buttons remain
+// clickable exactly as before. `selectedElement.kind` decides which
+// contextual control shows — TEXT gets the existing alignment control,
+// IMAGE gets a new opacity control — never both, since only one element is
+// ever selected at a time. An image role with no drawable yet still shows
+// its contextual panel (selection is composition-driven, not
+// drawable-driven — the role always exists on Statement/Hero regardless of
+// whether a photo has been chosen), with a plain "No photo added" state
+// rather than a slider with nothing to preview.
+//
+// Opacity is a UI-only structured operation, deliberately NOT routed
+// through interpretCreativeCommand() (no natural-language image command
+// exists, or is planned, for this gate) — setSelectedOpacity() builds a
+// CREATIVE_OPERATION_KIND.SET_OPACITY operation directly and hands it to
+// the EXISTING applyCreativeOperation(), never a second/local mutation
+// path. This mirrors the A.7 brief's own future-AI-operations diagram
+// (human UI action and a future model action both resolve to the same
+// CreativeOperation -> applyCreativeOperation() step) even though no model
+// exists yet.
+//
 // EXPORT-ERROR LIFECYCLE (correctness fix). `exportError` is scoped to
 // Export PNG specifically, but the conditions that make an export fail
 // (bad content, an invalid composition, an unsupported family) are exactly
@@ -132,12 +175,12 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { CREATIVE_TEMPLATES, CREATIVE_FAMILY, CREATIVE_TEMPLATE_LIST, CREATIVE_FORMAT } from "../../domains/election/design/templates.js";
 import { buildStudioCreativePayload, validateCreativePayload } from "../../domains/election/design/creative.js";
-import { renderCompositionToCanvas, renderCompositionMotionFrameToCanvas, computeElementSelectionBounds, canvasToPngBlob } from "../../domains/election/design/render.js";
-import { defaultCompositionFor, validateCreativeComposition, TEXT_ALIGNMENT_LIST } from "../../domains/election/design/composition.js";
+import { renderCompositionToCanvas, renderCompositionMotionFrameToCanvas, computeElementSelectionBounds, computeImageElementSelectionBounds, canvasToPngBlob, clearCanvas } from "../../domains/election/design/render.js";
+import { defaultCompositionFor, validateCreativeComposition, TEXT_ALIGNMENT_LIST, ELEMENT_KIND } from "../../domains/election/design/composition.js";
 import { validateMotionSpecification, MOTION_DURATION_MS, MOTION_FPS_OPTIONS } from "../../domains/election/design/motion.js";
 import { deriveTotalFrames, frameIndexForElapsed } from "../../domains/election/design/timing.js";
 import { CREATIVE_LANGUAGE_LIST, LANGUAGE_CONTEXT_FIELD, defaultUserLanguageContext, validateUserLanguageContext } from "../../domains/election/design/language.js";
-import { interpretCreativeCommand, applyCreativeOperation } from "../../domains/election/design/creativeCommand.js";
+import { interpretCreativeCommand, applyCreativeOperation, CREATIVE_OPERATION_KIND } from "../../domains/election/design/creativeCommand.js";
 import { Label, Panel, DemoTag, friendlyError, ensureCreativeFontsReady, downloadBlob, UI, IVORY, MUTED, TEAL, PINK, BORDER, BLACK, inputStyle } from "./shared.jsx";
 
 // GATE A.5.6 — GOLDEN CREATIVE FORMAT. One canonical format/dimension pair
@@ -319,10 +362,23 @@ export default function MotionPreview() {
       // and able to mutate composition with no canvas feedback confirming
       // anything. Treat invalid state as "nothing is selected."
       setSelectedElementId(null);
+      // GATE A.7.2B.1 — a real browser-discovered defect, confirmed by
+      // direct canvas pixel sampling: without this, the canvas keeps
+      // showing whatever the LAST VALID render drew (e.g. the previous
+      // family's photo) for as long as this template's own required
+      // content stays unfilled — most visibly during a family switch,
+      // before the newly-selected template's fields have been typed. This
+      // branch cannot render anything of its own (content is invalid), so
+      // it explicitly erases whatever is currently painted instead of
+      // silently leaving it there.
+      clearCanvas(canvas);
     } else if (!compositionValidation.valid) {
       setError(compositionValidation.error);
       setSelectionBounds([]);
       setSelectedElementId(null);
+      // GATE A.7.2B.1 — same fix, same reasoning, for the composition-
+      // invalid branch.
+      clearCanvas(canvas);
     } else {
       setError(null);
       // GATE A.7.2A — `drawables` (built above from `heroImage` state) is
@@ -331,7 +387,12 @@ export default function MotionPreview() {
       // (drawables: {} when no image has been chosen) draws nothing, same
       // as before this gate existed.
       renderCompositionToCanvas({ canvas, template, payload, composition, drawables });
-      const bounds = computeElementSelectionBounds({ canvas, template, content });
+      // GATE A.7.2B — IMAGE bounds FIRST, TEXT bounds SECOND (mandatory
+      // order — see this file's own header). Both come from the SAME
+      // renderer-owned geometry their respective renders just used; this
+      // is the one place `selectionBounds` is ever assembled, for BOTH
+      // element kinds, feeding the SAME pre-existing overlay-button JSX.
+      const bounds = [...computeImageElementSelectionBounds({ canvas, composition }), ...computeElementSelectionBounds({ canvas, template, content })];
       setSelectionBounds(bounds);
       setSelectedElementId((current) => (current != null && bounds.some((b) => b.role === current) ? current : null));
     }
@@ -539,6 +600,24 @@ export default function MotionPreview() {
     }));
   };
 
+  /** GATE A.7.2B — the IMAGE counterpart to setSelectedAlignment() above,
+   *  but routed through the governed CREATIVE_OPERATION_KIND.SET_OPACITY
+   *  operation and the EXISTING applyCreativeOperation() — never a second,
+   *  hand-rolled composition splice (see this file's own header on why).
+   *  A refusal (wrong-kind target, out-of-range opacity) simply leaves
+   *  composition untouched — this control only ever renders for an
+   *  already-selected IMAGE element, so a refusal here would indicate a
+   *  real bug, not a normal user path, and is silently ignored exactly
+   *  like setSelectedAlignment()'s own early-return guard. */
+  const setSelectedOpacity = (opacity) => {
+    if (!selectedElementId) return;
+    const result = applyCreativeOperation({
+      operation: { kind: CREATIVE_OPERATION_KIND.SET_OPACITY, targetRole: selectedElementId, opacity },
+      composition,
+    });
+    if (result.applied) setComposition(result.composition);
+  };
+
   /** GATE A.7.5 — the natural-language path to the SAME change
    *  setSelectedAlignment() above makes by button click. interpretCreativeCommand()
    *  resolves WHAT should change (using the current selection as context —
@@ -647,7 +726,11 @@ export default function MotionPreview() {
         </div>
       </div>
 
-      {selectedElement && (
+      {/* GATE A.7.2B — TEXT and IMAGE contextual controls are mutually
+          exclusive by construction: `selectedElement` is a single value,
+          and each block below is additionally gated on `.kind`, so the two
+          can never render together. */}
+      {selectedElement && selectedElement.kind === ELEMENT_KIND.TEXT && (
         <div style={{ marginBottom: 14, display: "flex", gap: 10, alignItems: "center" }}>
           <div style={{ fontFamily: UI, fontSize: 10.5, color: MUTED }}>Alignment ({selectedElement.role})</div>
           {TEXT_ALIGNMENT_LIST.map((a) => (
@@ -659,6 +742,22 @@ export default function MotionPreview() {
               {ALIGNMENT_LABEL[a] ?? a}
             </button>
           ))}
+        </div>
+      )}
+
+      {selectedElement && selectedElement.kind === ELEMENT_KIND.IMAGE && (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontFamily: UI, fontSize: 10.5, color: MUTED, marginBottom: 4 }}>Image ({selectedElement.role})</div>
+          {heroImage ? (
+            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+              <div style={{ fontFamily: UI, fontSize: 10.5, color: MUTED }}>Opacity</div>
+              <input type="range" min={0} max={1} step={0.01} value={selectedElement.properties.opacity}
+                onChange={(e) => setSelectedOpacity(Number(e.target.value))} aria-label="Image opacity" style={{ flex: 1, maxWidth: 200 }} />
+              <div style={{ fontFamily: UI, fontSize: 10.5, color: IVORY, minWidth: 36 }}>{Math.round(selectedElement.properties.opacity * 100)}%</div>
+            </div>
+          ) : (
+            <div style={{ fontFamily: UI, fontSize: 11.5, color: MUTED }}>No photo added</div>
+          )}
         </div>
       )}
 

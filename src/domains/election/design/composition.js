@@ -98,10 +98,18 @@ const PROPERTY_SCHEMA = Object.freeze({
   // this file's own header) — WHICH image fills a given role is a
   // render-time concern, resolved by the caller supplying render.js a
   // `drawables` map joined purely by `role`, the exact same join key TEXT
-  // already uses against `payload.content[role]`. `fit` is the only
-  // property a V1 image element governs.
+  // already uses against `payload.content[role]`.
+  //
+  // GATE A.7.2B — `opacity` joins `fit` as the second (and, for now, last)
+  // IMAGE property: a plain number in [0, 1], validated by range rather
+  // than `.includes()` — the first CONTINUOUS property in this file's
+  // otherwise entirely closed-enum vocabulary (TEXT_ALIGNMENT, IMAGE_FIT).
+  // This is deliberately still a small, bounded, deterministic range check,
+  // not a new validation mechanism — `fit` stays a closed enum, `opacity`
+  // is a bounded number, and no property beyond these two exists.
   [ELEMENT_KIND.IMAGE]: Object.freeze({
     fit: (value) => IMAGE_FIT_LIST.includes(value),
+    opacity: (value) => typeof value === "number" && value >= 0 && value <= 1,
   }),
 });
 
@@ -138,7 +146,10 @@ export function defaultCompositionFor(template, format) {
         id: slot.id,
         kind: ELEMENT_KIND.IMAGE,
         role: slot.id,
-        properties: { fit: IMAGE_FIT.COVER },
+        // GATE A.7.2B — opacity defaults to fully opaque (1), the same
+        // "default is the no-op/original value" precedent TEXT_ALIGNMENT.LEFT
+        // already sets for text elements.
+        properties: { fit: IMAGE_FIT.COVER, opacity: 1 },
       })),
     ],
   };

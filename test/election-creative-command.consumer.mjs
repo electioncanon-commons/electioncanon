@@ -37,8 +37,15 @@ console.log("Honesty markers");
 {
   ok("H1. exactly one language is a real, interpreted vocabulary right now",
     INTERPRETED_LANGUAGES.length === 1 && INTERPRETED_LANGUAGES[0] === "en");
-  ok("H2. exactly one operation kind exists in V1 — the smallest set that proves the architecture",
-    Object.keys(CREATIVE_OPERATION_KIND).length === 1 && CREATIVE_OPERATION_KIND.SET_ALIGNMENT === "SET_ALIGNMENT");
+  // GATE A.7.2B — the honesty marker grows from one to two, deliberately:
+  // exactly one operation PER GOVERNED ELEMENT KIND (SET_ALIGNMENT for
+  // TEXT, SET_OPACITY for IMAGE) — still the smallest set that proves the
+  // architecture for both kinds now in play, never a representative
+  // sample or a generic {property, value} operation.
+  ok("H2. exactly two operation kinds exist in V1 — one per governed element kind, still the smallest set that proves the architecture",
+    Object.keys(CREATIVE_OPERATION_KIND).length === 2
+    && CREATIVE_OPERATION_KIND.SET_ALIGNMENT === "SET_ALIGNMENT"
+    && CREATIVE_OPERATION_KIND.SET_OPACITY === "SET_OPACITY");
 }
 
 // ============================================================
@@ -159,6 +166,59 @@ console.log("\napplyCreativeOperation() — refuses what it cannot honestly appl
 
   const badComposition = applyCreativeOperation({ operation: { kind: CREATIVE_OPERATION_KIND.SET_ALIGNMENT, targetRole: "headline", alignment: TEXT_ALIGNMENT.CENTER }, composition: null });
   ok("G5. a missing/malformed composition is refused", badComposition.applied === false);
+}
+
+// ============================================================
+console.log("\napplyCreativeOperation() — SET_OPACITY (Gate A.7.2B)");
+// ============================================================
+{
+  // GATE A.7.1 already gives Statement/Hero a heroImage element by default
+  // (opacity: 1) alongside its headline/body text elements — no fixture
+  // change needed to exercise a real IMAGE target.
+  const composition = defaultCompositionFor(STATEMENT, CREATIVE_FORMAT.PORTRAIT);
+
+  const applied = applyCreativeOperation({ operation: { kind: CREATIVE_OPERATION_KIND.SET_OPACITY, targetRole: "heroImage", opacity: 0.4 }, composition });
+  ok("OPA1. SET_OPACITY applies correctly", applied.applied === true && applied.composition.elements.find((el) => el.role === "heroImage").properties.opacity === 0.4);
+  ok("OPA2. the SAME element's OTHER property (fit) is untouched", applied.composition.elements.find((el) => el.role === "heroImage").properties.fit === "cover");
+  ok("OPA3. every OTHER element (headline, body) is untouched", applied.composition.elements.filter((el) => el.role !== "heroImage").every((el) => JSON.stringify(el) === JSON.stringify(composition.elements.find((o) => o.role === el.role))));
+  ok("OPA4. the ORIGINAL composition object was never mutated", composition.elements.find((el) => el.role === "heroImage").properties.opacity === 1);
+  ok("OPA5. the result is frozen", Object.isFrozen(applied.composition));
+
+  const badOpacityHigh = applyCreativeOperation({ operation: { kind: CREATIVE_OPERATION_KIND.SET_OPACITY, targetRole: "heroImage", opacity: 1.5 }, composition });
+  ok("OPA6. SET_OPACITY rejects opacity > 1", badOpacityHigh.applied === false && badOpacityHigh.composition === null);
+
+  const badOpacityLow = applyCreativeOperation({ operation: { kind: CREATIVE_OPERATION_KIND.SET_OPACITY, targetRole: "heroImage", opacity: -0.5 }, composition });
+  ok("OPA7. SET_OPACITY rejects negative opacity", badOpacityLow.applied === false);
+
+  const badOpacityString = applyCreativeOperation({ operation: { kind: CREATIVE_OPERATION_KIND.SET_OPACITY, targetRole: "heroImage", opacity: "0.5" }, composition });
+  ok("OPA8. SET_OPACITY rejects a non-number opacity", badOpacityString.applied === false);
+
+  const missingOpacity = applyCreativeOperation({ operation: { kind: CREATIVE_OPERATION_KIND.SET_OPACITY, targetRole: "heroImage" }, composition });
+  ok("OPA9. SET_OPACITY rejects a missing opacity value", missingOpacity.applied === false);
+
+  const missingTarget = applyCreativeOperation({ operation: { kind: CREATIVE_OPERATION_KIND.SET_OPACITY, targetRole: "nonexistent", opacity: 0.5 }, composition });
+  ok("OPA10. SET_OPACITY rejects a missing/nonexistent target role", missingTarget.applied === false && missingTarget.composition === null);
+
+  const wrongKindTarget = applyCreativeOperation({ operation: { kind: CREATIVE_OPERATION_KIND.SET_OPACITY, targetRole: "headline", opacity: 0.5 }, composition });
+  ok("OPA11. SET_OPACITY rejects a TEXT target — opacity does not apply to text elements", wrongKindTarget.applied === false && wrongKindTarget.composition === null);
+}
+
+// ============================================================
+console.log("\nElement kind safety — an operation can never cross into the wrong element kind (Gate A.7.2B)");
+// ============================================================
+{
+  const composition = defaultCompositionFor(STATEMENT, CREATIVE_FORMAT.PORTRAIT);
+
+  const alignmentOnImage = applyCreativeOperation({ operation: { kind: CREATIVE_OPERATION_KIND.SET_ALIGNMENT, targetRole: "heroImage", alignment: TEXT_ALIGNMENT.CENTER }, composition });
+  ok("KIND1. SET_ALIGNMENT rejects an IMAGE target — alignment does not apply to image elements", alignmentOnImage.applied === false && alignmentOnImage.composition === null);
+
+  ok("KIND2. an image element's properties are never touched by a rejected SET_ALIGNMENT attempt", (() => {
+    applyCreativeOperation({ operation: { kind: CREATIVE_OPERATION_KIND.SET_ALIGNMENT, targetRole: "heroImage", alignment: TEXT_ALIGNMENT.CENTER }, composition });
+    return composition.elements.find((el) => el.role === "heroImage").properties.opacity === 1 && composition.elements.find((el) => el.role === "heroImage").properties.fit === "cover";
+  })());
+
+  const opacityOnText = applyCreativeOperation({ operation: { kind: CREATIVE_OPERATION_KIND.SET_OPACITY, targetRole: "body", opacity: 0.5 }, composition });
+  ok("KIND3. SET_OPACITY rejects a TEXT target — opacity does not apply to text elements (re-asserted here alongside OPA11, under this section's own name)", opacityOnText.applied === false && opacityOnText.composition === null);
 }
 
 // ============================================================

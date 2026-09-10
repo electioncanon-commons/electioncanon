@@ -18,7 +18,7 @@
 // renderMotionFrameToCanvas().
 // ============================================================
 
-import { renderTemplateToCanvas, renderCompositionToCanvas, renderCompositionMotionFrameToCanvas, computeElementSelectionBounds } from "../src/domains/election/design/render.js";
+import { renderTemplateToCanvas, renderCompositionToCanvas, renderCompositionMotionFrameToCanvas, computeElementSelectionBounds, computeImageElementSelectionBounds, clearCanvas } from "../src/domains/election/design/render.js";
 import { CREATIVE_TEMPLATES, CREATIVE_FAMILY, CREATIVE_FORMAT } from "../src/domains/election/design/templates.js";
 import { MOTION_PRESET } from "../src/domains/election/design/motion.js";
 import {
@@ -45,7 +45,15 @@ function fakeCanvas(width, height) {
   // record theirs. Existing tests never supply a `drawables` map to
   // renderCompositionToCanvas(), so drawImageElements() never calls this —
   // adding it here is a pure no-op for every pre-existing assertion.
-  const calls = { fillRect: [], fillText: [], fillStyleHistory: [], drawImage: [] };
+  // GATE A.7.2B — `drawImageAlpha` records ctx.globalAlpha at the moment
+  // EACH drawImage call happened, in parallel with (never replacing) the
+  // existing `drawImage` args array, so every pre-existing test destructuring
+  // `calls.drawImage[i]` as a plain args array is completely unaffected.
+  // GATE A.7.2B.1 — `clearRect` records its full args, same additive
+  // no-op-for-existing-tests discipline as `drawImage`/`drawImageAlpha`
+  // above: nothing pre-existing ever calls clearRect, so recording it
+  // changes no prior test's behavior.
+  const calls = { fillRect: [], fillText: [], fillStyleHistory: [], drawImage: [], drawImageAlpha: [], clearRect: [] };
   let fillStyle = null;
   let globalAlpha = 1;
   const ctx = {
@@ -56,7 +64,8 @@ function fakeCanvas(width, height) {
     font: null, textBaseline: null,
     fillRect: (...args) => calls.fillRect.push(args),
     fillText: (text, x, y) => calls.fillText.push({ text, x, y, font: ctx.font, alpha: ctx.globalAlpha }),
-    drawImage: (...args) => calls.drawImage.push(args),
+    drawImage: (...args) => { calls.drawImage.push(args); calls.drawImageAlpha.push(ctx.globalAlpha); },
+    clearRect: (...args) => calls.clearRect.push(args),
     measureText: (text) => ({ width: String(text).length * ((parseFloat(/(\d+(?:\.\d+)?)px/.exec(ctx.font || "")?.[1]) || 16)) * 0.55 }),
   };
   return { width, height, getContext: () => ctx, textBaseline: null, _calls: calls };
@@ -164,7 +173,84 @@ console.log("\nGATE A.7.1 — IMAGE ELEMENT FOUNDATION: composition validation")
 
   ok("I10. text-only templates (Announcement, no imageSlots declared) are completely unaffected — a valid text-only composition still validates", validateCreativeComposition({ composition: defaultCompositionFor(ANNOUNCEMENT_TEMPLATE, format), template: ANNOUNCEMENT_TEMPLATE }).valid === true);
 
-  ok("I11. an Announcement composition can never legally carry an image element — Announcement declares no imageSlots at all", validateCreativeComposition({ composition: { ...defaultCompositionFor(ANNOUNCEMENT_TEMPLATE, format), elements: [...defaultCompositionFor(ANNOUNCEMENT_TEMPLATE, format).elements, { id: "heroImage", kind: ELEMENT_KIND.IMAGE, role: "heroImage", properties: { fit: IMAGE_FIT.COVER } }] }, template: ANNOUNCEMENT_TEMPLATE }).valid === false);
+  ok("I11. an Announcement composition can never legally carry an image element — Announcement declares no imageSlots at all", validateCreativeComposition({ composition: { ...defaultCompositionFor(ANNOUNCEMENT_TEMPLATE, format), elements: [...defaultCompositionFor(ANNOUNCEMENT_TEMPLATE, format).elements, { id: "heroImage", kind: ELEMENT_KIND.IMAGE, role: "heroImage", properties: { fit: IMAGE_FIT.COVER, opacity: 1 } }] }, template: ANNOUNCEMENT_TEMPLATE }).valid === false);
+}
+
+// ============================================================
+console.log("\nGATE A.7.2B — IMAGE opacity: composition validation");
+// ============================================================
+{
+  const format = CREATIVE_FORMAT.PORTRAIT;
+  const valid = defaultCompositionFor(STATEMENT_TEMPLATE, format);
+  const heroIndex = valid.elements.findIndex((el) => el.kind === ELEMENT_KIND.IMAGE);
+  const withHeroProperties = (properties) => ({ ...valid, elements: valid.elements.map((el, i) => (i === heroIndex ? { ...el, properties } : el)) });
+
+  ok("OP1. opacity is required — an image element missing it (fit only) fails", validateCreativeComposition({ composition: withHeroProperties({ fit: IMAGE_FIT.COVER }), template: STATEMENT_TEMPLATE }).valid === false);
+  ok("OP2. opacity 0 is valid", validateCreativeComposition({ composition: withHeroProperties({ fit: IMAGE_FIT.COVER, opacity: 0 }), template: STATEMENT_TEMPLATE }).valid === true);
+  ok("OP3. opacity 0.5 is valid", validateCreativeComposition({ composition: withHeroProperties({ fit: IMAGE_FIT.COVER, opacity: 0.5 }), template: STATEMENT_TEMPLATE }).valid === true);
+  ok("OP4. opacity 1 is valid", validateCreativeComposition({ composition: withHeroProperties({ fit: IMAGE_FIT.COVER, opacity: 1 }), template: STATEMENT_TEMPLATE }).valid === true);
+  ok("OP5. negative opacity is rejected", validateCreativeComposition({ composition: withHeroProperties({ fit: IMAGE_FIT.COVER, opacity: -0.1 }), template: STATEMENT_TEMPLATE }).valid === false);
+  ok("OP6. opacity > 1 is rejected", validateCreativeComposition({ composition: withHeroProperties({ fit: IMAGE_FIT.COVER, opacity: 1.1 }), template: STATEMENT_TEMPLATE }).valid === false);
+  ok("OP7. a string opacity is rejected", validateCreativeComposition({ composition: withHeroProperties({ fit: IMAGE_FIT.COVER, opacity: "0.5" }), template: STATEMENT_TEMPLATE }).valid === false);
+  ok("OP8. the default composition's image element defaults to opacity 1 (fully opaque — the same 'default is the no-op value' precedent alignment:\"left\" already sets)", valid.elements[heroIndex].properties.opacity === 1);
+}
+
+// ============================================================
+console.log("\nGATE A.7.2B — computeImageElementSelectionBounds() and opacity rendering");
+// ============================================================
+{
+  const format = CREATIVE_FORMAT.PORTRAIT;
+  const composition = defaultCompositionFor(STATEMENT_TEMPLATE, format);
+
+  ok("SELIMG1. returns exactly one bounding box for the declared heroImage role", (() => {
+    const bounds = computeImageElementSelectionBounds({ canvas: fakeCanvas(1080, 1350), composition });
+    return bounds.length === 1 && bounds[0].role === "heroImage";
+  })());
+
+  ok("SELIMG2. the bounding box uses the SAME normalized geometry the renderer itself draws from — full-bleed (0,0,1,1) maps to the entire canvas, for whatever format/dimensions the canvas actually has", (() => {
+    const bounds = computeImageElementSelectionBounds({ canvas: fakeCanvas(1080, 1350), composition });
+    const b = bounds[0];
+    return b.x === 0 && b.y === 0 && b.width === 1080 && b.height === 1350;
+  })());
+
+  ok("SELIMG3. an Announcement composition (no imageSlots declared) yields zero image bounds", (() => {
+    const announcementComposition = defaultCompositionFor(ANNOUNCEMENT_TEMPLATE, format);
+    return computeImageElementSelectionBounds({ canvas: fakeCanvas(1080, 1350), composition: announcementComposition }).length === 0;
+  })());
+
+  ok("SELIMG4. a pure geometry read — never calls getContext, never draws anything", (() => {
+    const canvas = fakeCanvas(1080, 1350);
+    computeImageElementSelectionBounds({ canvas, composition });
+    return canvas._calls.drawImage.length === 0 && canvas._calls.fillRect.length === 0;
+  })());
+
+  ok("ALPHA1. drawImage receives globalAlpha matching the element's own opacity property", (() => {
+    const canvas = fakeCanvas(1080, 1350);
+    const opacityComposition = { ...composition, elements: composition.elements.map((el) => (el.kind === ELEMENT_KIND.IMAGE ? { ...el, properties: { ...el.properties, opacity: 0.42 } } : el)) };
+    renderCompositionToCanvas({ canvas, template: STATEMENT_TEMPLATE, payload: { content: { headline: "x" }, visual: {}, identity: {} }, composition: opacityComposition, drawables: { heroImage: { source: "x", width: 100, height: 100 } } });
+    return canvas._calls.drawImageAlpha[0] === 0.42;
+  })());
+
+  ok("ALPHA2. globalAlpha resets to 1 immediately after the image draw — a subsequent fillText call is unaffected by the image's own opacity", (() => {
+    const canvas = fakeCanvas(1080, 1350);
+    const opacityComposition = { ...composition, elements: composition.elements.map((el) => (el.kind === ELEMENT_KIND.IMAGE ? { ...el, properties: { ...el.properties, opacity: 0.3 } } : el)) };
+    renderCompositionToCanvas({ canvas, template: STATEMENT_TEMPLATE, payload: { content: { headline: "Every vote counts" }, visual: {}, identity: {} }, composition: opacityComposition, drawables: { heroImage: { source: "x", width: 100, height: 100 } } });
+    const headlineDraw = canvas._calls.fillText.find((c) => c.text.includes("Every vote counts"));
+    return headlineDraw.alpha === 1;
+  })());
+
+  ok("ALPHA3. the default opacity (1) draws with globalAlpha 1 — unchanged baseline behaviour from A.7.1", (() => {
+    const canvas = fakeCanvas(1080, 1080);
+    const squareComposition = defaultCompositionFor(STATEMENT_TEMPLATE, CREATIVE_FORMAT.SQUARE);
+    renderCompositionToCanvas({ canvas, template: STATEMENT_TEMPLATE, payload: { content: { headline: "x" }, visual: {}, identity: {} }, composition: squareComposition, drawables: { heroImage: { source: "x", width: 100, height: 100 } } });
+    return canvas._calls.drawImageAlpha[0] === 1;
+  })());
+
+  ok("ALPHA4. no drawImage call at all when no drawable is supplied — opacity math never runs against a nonexistent draw", (() => {
+    const canvas = fakeCanvas(1080, 1350);
+    renderCompositionToCanvas({ canvas, template: STATEMENT_TEMPLATE, payload: { content: { headline: "x" }, visual: {}, identity: {} }, composition });
+    return canvas._calls.drawImage.length === 0 && canvas._calls.drawImageAlpha.length === 0;
+  })());
 }
 
 // ============================================================
@@ -650,6 +736,119 @@ console.log("\nrender.js — center alignment never clips off the left edge (cor
   renderCompositionToCanvas({ canvas: leftCanvas, template, payload: { content: { headline: "x".repeat(80) }, visual: {}, identity: {} }, composition: leftComposition });
   const leftLine = leftCanvas._calls.fillText.find((c) => c.text.length > 0);
   ok("28. equivalent left-aligned oversized text is untouched by this fix — x is exactly the margin, as it always was", leftLine.x === marginX);
+}
+
+// ============================================================
+console.log("\nGATE A.7.2B.1 — clearCanvas() (correctness fix)");
+// ============================================================
+{
+  ok("CLEAR1. clearCanvas() calls ctx.clearRect with the FULL canvas bounds — not a partial rect, not the wrong dimensions", (() => {
+    const canvas = fakeCanvas(1080, 1350);
+    clearCanvas(canvas);
+    return canvas._calls.clearRect.length === 1 && JSON.stringify(canvas._calls.clearRect[0]) === JSON.stringify([0, 0, 1080, 1350]);
+  })());
+
+  ok("CLEAR2. clearCanvas() respects the canvas's OWN actual width/height — proven with a different size, not a hardcoded 1080x1350 assumption", (() => {
+    const canvas = fakeCanvas(500, 700);
+    clearCanvas(canvas);
+    return JSON.stringify(canvas._calls.clearRect[0]) === JSON.stringify([0, 0, 500, 700]);
+  })());
+
+  ok("CLEAR3. clearCanvas() draws NOTHING else — no fillRect, no fillText, no drawImage — it only ever erases, never composes a new visual", (() => {
+    const canvas = fakeCanvas(1080, 1350);
+    clearCanvas(canvas);
+    return canvas._calls.fillRect.length === 0 && canvas._calls.fillText.length === 0 && canvas._calls.drawImage.length === 0;
+  })());
+}
+
+// ============================================================
+console.log("\nGATE A.7.2B.1 — REGRESSION: the exact browser-discovered failure mode (stale pixels across an invalid transition)");
+//
+// Proves the actual failure, not merely that clearCanvas() exists in
+// isolation: a valid render leaves real, inspectable drawing calls on a
+// canvas; clearCanvas() is then the ONLY thing standing between those
+// calls and a second, DIFFERENT template's own valid render being trusted
+// to produce a clean result. Mirrors exactly what MotionPreview.jsx's
+// invalid branches now do — render A, (family switch reaches an invalid
+// interstitial state — nothing rendered) clear, then render B — and
+// proves B's own output is unaffected by A ever having existed on this
+// same canvas object.
+// ============================================================
+{
+  const format = CREATIVE_FORMAT.PORTRAIT;
+
+  ok("REGR1. Statement/Hero WITH an image renders real content (fillText + drawImage) onto the canvas — this is 'pixels from A' the bug leaves stale", (() => {
+    const canvas = fakeCanvas(1080, 1350);
+    const composition = defaultCompositionFor(STATEMENT_TEMPLATE, format);
+    renderCompositionToCanvas({
+      canvas, template: STATEMENT_TEMPLATE,
+      payload: { content: { headline: "Every vote counts", body: "Register before Friday" }, visual: {}, identity: {} },
+      composition, drawables: { heroImage: { source: "photo", width: 800, height: 600 } },
+    });
+    return canvas._calls.fillText.some((c) => c.text.includes("Every vote counts")) && canvas._calls.drawImage.length === 1;
+  })());
+
+  ok("REGR2. clearCanvas() on that SAME canvas object issues a full-bounds clearRect — the exact operation that (by native browser guarantee) erases every pixel A drew, regardless of what A was", (() => {
+    const canvas = fakeCanvas(1080, 1350);
+    const composition = defaultCompositionFor(STATEMENT_TEMPLATE, format);
+    renderCompositionToCanvas({
+      canvas, template: STATEMENT_TEMPLATE,
+      payload: { content: { headline: "Every vote counts", body: "Register before Friday" }, visual: {}, identity: {} },
+      composition, drawables: { heroImage: { source: "photo", width: 800, height: 600 } },
+    });
+    clearCanvas(canvas);
+    const lastClear = canvas._calls.clearRect[canvas._calls.clearRect.length - 1];
+    return JSON.stringify(lastClear) === JSON.stringify([0, 0, 1080, 1350]);
+  })());
+
+  ok("REGR3. Announcement's OWN valid render, run afterward on that SAME canvas, produces exactly its own correct content — never draws an image (Announcement declares no imageSlots) and never re-draws Statement/Hero's own headline text", (() => {
+    const canvas = fakeCanvas(1080, 1350);
+    const statementComposition = defaultCompositionFor(STATEMENT_TEMPLATE, format);
+    renderCompositionToCanvas({
+      canvas, template: STATEMENT_TEMPLATE,
+      payload: { content: { headline: "Every vote counts", body: "Register before Friday" }, visual: {}, identity: {} },
+      composition: statementComposition, drawables: { heroImage: { source: "photo", width: 800, height: 600 } },
+    });
+    clearCanvas(canvas);
+
+    const announcementComposition = defaultCompositionFor(ANNOUNCEMENT_TEMPLATE, format);
+    renderCompositionToCanvas({
+      canvas, template: ANNOUNCEMENT_TEMPLATE,
+      payload: { content: { headline: "Rally this Saturday", body: "Doors open at 9am." }, visual: {}, identity: {} },
+      composition: announcementComposition,
+    });
+
+    const drawsAnnouncementHeadline = canvas._calls.fillText.some((c) => c.text.includes("Rally this Saturday"));
+    const stillHasStatementHeadlineAsLastFillText = canvas._calls.fillText[canvas._calls.fillText.length - 1]?.text.includes("Every vote counts");
+    // drawImage.length stays 1 (from A) in this MOCK's call LOG — the log is
+    // never erased, by design (see this file's own fakeCanvas() header) —
+    // clearCanvas()'s REAL guarantee is the full-bounds clearRect recorded
+    // above (REGR2), which on a genuine canvas erases those pixels
+    // regardless of what the call log still remembers happened.
+    return drawsAnnouncementHeadline && !stillHasStatementHeadlineAsLastFillText && canvas._calls.drawImage.length === 1;
+  })());
+
+  ok("REGR4 (REVERSE DIRECTION). Announcement's own render, then clear, then Statement/Hero's own render on the SAME canvas — Announcement's background/content leaves no trace in Statement/Hero's own fresh output", (() => {
+    const canvas = fakeCanvas(1080, 1350);
+    const announcementComposition = defaultCompositionFor(ANNOUNCEMENT_TEMPLATE, format);
+    renderCompositionToCanvas({
+      canvas, template: ANNOUNCEMENT_TEMPLATE,
+      payload: { content: { headline: "Rally this Saturday", body: "Doors open at 9am." }, visual: {}, identity: {} },
+      composition: announcementComposition,
+    });
+    clearCanvas(canvas);
+
+    const statementComposition = defaultCompositionFor(STATEMENT_TEMPLATE, format);
+    renderCompositionToCanvas({
+      canvas, template: STATEMENT_TEMPLATE,
+      payload: { content: { headline: "Every vote counts", body: "Register before Friday" }, visual: {}, identity: {} },
+      composition: statementComposition,
+    });
+
+    const finalFillRectIsStatementBackground = JSON.stringify(canvas._calls.fillRect[canvas._calls.fillRect.length - 1]) === JSON.stringify([0, 0, 1080, 1350]);
+    const lastFillTextIsStatementContent = canvas._calls.fillText[canvas._calls.fillText.length - 1]?.text.includes("Register before Friday");
+    return finalFillRectIsStatementBackground && lastFillTextIsStatementContent;
+  })());
 }
 
 console.log(`\n${pass}/${pass + fail} assertions passed${fail ? ` — ${fail} FAILED` : ""}\n`);

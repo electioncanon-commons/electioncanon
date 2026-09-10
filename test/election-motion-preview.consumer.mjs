@@ -225,7 +225,12 @@ console.log("\nOne controlled property — alignment (Gate A.6.4)");
   ok("ALIGN2. the alignment control renders from TEXT_ALIGNMENT_LIST.map(), never a hardcoded ['left','center'] literal", /TEXT_ALIGNMENT_LIST\.map\(/.test(codeOnly) && !/\[\s*["']left["']\s*,\s*["']center["']\s*\]/.test(codeOnly));
   ok("ALIGN3. setSelectedAlignment() updates the element immutably via .map(), never mutates composition.elements in place", /elements:\s*c\.elements\.map\(/.test(codeOnly));
   ok("ALIGN4. only the `alignment` property is ever assigned to an element — no font/size/colour/position key appears inside any element `properties` object anywhere in this file", !/properties:\s*\{[^}]*(fontSize|fontFamily|weight|colour|color|position|lineHeight|letterSpacing)[^}]*\}/i.test(codeOnly));
-  ok("ALIGN5. the contextual alignment control only renders when an element is actually selected — conditional on selectedElement, never permanently visible", /\{selectedElement\s*&&\s*\(/.test(codeOnly));
+  // GATE A.7.2B — the alignment block's own condition grew a `.kind ===
+  // ELEMENT_KIND.TEXT` clause (it must not render for a selected IMAGE
+  // element); this still proves the same thing ALIGN5 always asserted —
+  // conditional on selectedElement, never permanently visible — just via
+  // an updated literal.
+  ok("ALIGN5. the contextual alignment control only renders when an element is actually selected — conditional on selectedElement, never permanently visible", /\{selectedElement\s*&&\s*selectedElement\.kind\s*===\s*ELEMENT_KIND\.TEXT\s*&&\s*\(/.test(codeOnly));
   ok("ALIGN6. the SAME composition state that drives the live static render also holds the alignment change — setSelectedAlignment calls setComposition, not a separate preview-only state setter", (() => {
     const fnStart = codeOnly.indexOf("const setSelectedAlignment");
     const fnEnd = codeOnly.indexOf("};", fnStart);
@@ -282,7 +287,7 @@ console.log("\nInvalid composition/payload state clears selection entirely, not 
     const branch = liveEffectBody.slice(branchStart, branchEnd);
     return /setSelectionBounds\(\[\]\)/.test(branch) && /setSelectedElementId\(null\)/.test(branch);
   })());
-  ok("SELCLEAR5. the alignment control still renders only when selectedElement is truthy — with selectedElementId cleared, an invalid state renders no alignment control at all, so it cannot mutate stale selection state", /\{selectedElement\s*&&\s*\(/.test(codeOnly));
+  ok("SELCLEAR5. the alignment control still renders only when selectedElement is truthy — with selectedElementId cleared, an invalid state renders no alignment control at all, so it cannot mutate stale selection state", /\{selectedElement\s*&&\s*selectedElement\.kind\s*===\s*ELEMENT_KIND\.TEXT\s*&&\s*\(/.test(codeOnly));
 }
 
 // ============================================================
@@ -429,6 +434,121 @@ console.log("\nGATE A.7.2A — no persistence/Storage/asset path is introduced (
   })());
 }
 
+// ============================================================
+console.log("\nGATE A.7.2B — IMAGE SELECTION: bounds ordering (mandatory image-first, text-second)");
+// ============================================================
+{
+  ok("ORDER1. imports computeImageElementSelectionBounds from the existing design/render.js — never a second/local geometry calculation", /import\s*\{[^}]*computeImageElementSelectionBounds[^}]*\}\s*from\s*["'].*design\/render\.js["']/.test(previewSrc));
+
+  const liveEffectStart = codeOnly.indexOf("useEffect(() => {\n    const canvas = canvasRef.current;");
+  const liveEffectEnd = codeOnly.indexOf("}, [familyKey, preset, content, composition, heroImage]);");
+  const liveEffectBody = codeOnly.slice(liveEffectStart, liveEffectEnd);
+
+  ok("ORDER2. `selectionBounds` is built as ONE array combining both geometry sources — not two separate state variables", /const bounds = \[\.\.\.computeImageElementSelectionBounds\(\{ canvas, composition \}\), \.\.\.computeElementSelectionBounds\(\{ canvas, template, content \}\)\];/.test(liveEffectBody));
+
+  ok("ORDER3 (REGRESSION GUARD). computeImageElementSelectionBounds() appears BEFORE computeElementSelectionBounds() in that SAME array construction — heroImage's full-bleed overlay button must paint underneath, so headline/body's own smaller buttons (added second) remain on top and clickable. This is the exact source-level guarantee this gate is required to prove: the headline stays selectable despite heroImage being full bleed.", (() => {
+    const arrayLineIndex = liveEffectBody.indexOf("const bounds = [...computeImageElementSelectionBounds");
+    const imageCallIndex = liveEffectBody.indexOf("computeImageElementSelectionBounds(", arrayLineIndex);
+    const textCallIndex = liveEffectBody.indexOf("computeElementSelectionBounds({ canvas, template, content })", arrayLineIndex);
+    return arrayLineIndex !== -1 && imageCallIndex !== -1 && textCallIndex !== -1 && imageCallIndex < textCallIndex;
+  })());
+
+  ok("ORDER4. only ONE `selectionBounds` array is ever built per render pass — no second, competing bounds computation exists elsewhere in the file", (codeOnly.match(/const bounds = \[/g) || []).length === 1);
+}
+
+// ============================================================
+console.log("\nGATE A.7.2B — CONTEXTUAL CONTROL: TEXT vs IMAGE, never both");
+// ============================================================
+{
+  ok("CTX1. the TEXT alignment control is additionally gated on selectedElement.kind === ELEMENT_KIND.TEXT — it no longer renders merely because SOMETHING is selected", /\{selectedElement\s*&&\s*selectedElement\.kind\s*===\s*ELEMENT_KIND\.TEXT\s*&&\s*\(/.test(codeOnly));
+  ok("CTX2. a SEPARATE contextual block exists gated on selectedElement.kind === ELEMENT_KIND.IMAGE", /\{selectedElement\s*&&\s*selectedElement\.kind\s*===\s*ELEMENT_KIND\.IMAGE\s*&&\s*\(/.test(codeOnly));
+  ok("CTX3. the two contextual blocks test OPPOSITE kind values (TEXT vs IMAGE) on the SAME selectedElement — structurally mutually exclusive, since one value can never equal two different kinds at once", (() => {
+    const textGate = /selectedElement\.kind === ELEMENT_KIND\.TEXT/.test(codeOnly);
+    const imageGate = /selectedElement\.kind === ELEMENT_KIND\.IMAGE/.test(codeOnly);
+    return textGate && imageGate;
+  })());
+  ok("CTX4. ELEMENT_KIND is imported from the existing design/composition.js — never a hardcoded 'text'/'image' string literal used for this gating", /import\s*\{[^}]*ELEMENT_KIND[^}]*\}\s*from\s*["'].*design\/composition\.js["']/.test(previewSrc));
+  ok("CTX5. the empty-image state is understandable — a plain \"No photo added\" message renders when the IMAGE block is showing but no heroImage drawable exists yet", /No photo added/.test(previewSrc));
+  ok("CTX6. the opacity slider is conditioned on `heroImage` being present — it never renders (with nothing to control) when no photo has been chosen", (() => {
+    const imgBlockStart = codeOnly.indexOf("selectedElement.kind === ELEMENT_KIND.IMAGE");
+    const imgBlockEnd = codeOnly.indexOf(")}", codeOnly.indexOf("No photo added"));
+    const imgBlock = codeOnly.slice(imgBlockStart, imgBlockEnd);
+    return /heroImage \?/.test(imgBlock);
+  })());
+}
+
+// ============================================================
+console.log("\nGATE A.7.2B — OPACITY routes through the governed CreativeOperation path");
+// ============================================================
+{
+  ok("ROUTE1. imports CREATIVE_OPERATION_KIND from the existing design/creativeCommand.js", /import\s*\{[^}]*CREATIVE_OPERATION_KIND[^}]*\}\s*from\s*["'].*design\/creativeCommand\.js["']/.test(previewSrc));
+
+  const opacityFnStart = codeOnly.indexOf("const setSelectedOpacity");
+  const opacityFnEnd = codeOnly.indexOf("};", opacityFnStart);
+  const opacityFnBody = codeOnly.slice(opacityFnStart, opacityFnEnd);
+  ok("ROUTE2. setSelectedOpacity() exists and was located", opacityFnStart !== -1 && opacityFnEnd > opacityFnStart);
+  ok("ROUTE3. it constructs a CREATIVE_OPERATION_KIND.SET_OPACITY operation, never a raw ad hoc composition splice", /kind:\s*CREATIVE_OPERATION_KIND\.SET_OPACITY/.test(opacityFnBody));
+  ok("ROUTE4. it calls the EXISTING applyCreativeOperation() — never a second/local mutation path", /applyCreativeOperation\(\{/.test(opacityFnBody));
+  ok("ROUTE5. it does NOT call interpretCreativeCommand() — a slider is not natural-language text, and no natural-language image command is introduced by this gate", !/interpretCreativeCommand\(/.test(opacityFnBody));
+  ok("ROUTE6. it only commits the change via setComposition when the operation actually applied — a refused operation never touches composition state", /if \(result\.applied\) setComposition\(result\.composition\);/.test(opacityFnBody));
+  ok("ROUTE7. the opacity <input type=\"range\"> calls setSelectedOpacity on change — the UI control is actually wired to the governed path, not merely defined alongside it", /onChange=\{\(e\) => setSelectedOpacity\(Number\(e\.target\.value\)\)\}/.test(previewSrc));
+}
+
+// ============================================================
+console.log("\nGATE A.7.2B — family switch leaves no stale image/selection/opacity state (extends A.7.2A's own model, unmodified)");
+// ============================================================
+{
+  ok("SWITCH1. the atomic family-reset block is UNCHANGED by this gate — still clears heroImage, imageError, selectedElementId, and bumps the generation ref (A.7.2A's own model, not altered)", (() => {
+    const resetStart = codeOnly.indexOf("if (familyKey !== resetForFamilyKey)");
+    const resetEnd = codeOnly.indexOf("const drawables = heroImage");
+    const resetBody = codeOnly.slice(resetStart, resetEnd);
+    return /setHeroImage\(null\)/.test(resetBody) && /setImageError\(null\)/.test(resetBody) && /setSelectedElementId\(null\)/.test(resetBody) && /heroImageGenerationRef\.current \+= 1/.test(resetBody);
+  })());
+  ok("SWITCH2. composition is rebuilt via defaultCompositionFor on family switch — a fresh Statement/Hero composition always gets a fresh opacity: 1 image element (no stale opacity value can survive a round trip through another family), since composition.js's own default never carries over a prior value", /setComposition\(defaultCompositionFor\(template, GOLDEN_FORMAT\)\)/.test(codeOnly));
+  ok("SWITCH3. no NEW opacity-specific reset state was introduced — opacity staleness is structurally impossible because it lives inside composition, which is already fully replaced, not held as separate page state", !/const \[.*[Oo]pacity.*\] = useState/.test(codeOnly));
+}
+
+// ============================================================
+console.log("\nGATE A.7.2B.1 — invalid-state canvas clearing is actually wired in (correctness fix)");
+//
+// This file's own header explains why MotionPreview.jsx's real runtime
+// behavior cannot be executed here (no JSX transform, no live canvas) —
+// the genuine pixel-level proof that clearCanvas() actually erases stale
+// content lives in test/election-creative-composition.consumer.mjs's own
+// REGR1-4 (executed against design/render.js's real, exported functions
+// and a real fake-canvas call log). What THIS section proves is the
+// wiring: that this exact, already-proven-correct function is imported
+// and actually invoked at exactly the two places that used to leave the
+// canvas untouched — never merely that a "clearCanvas" identifier exists
+// somewhere in the file.
+// ============================================================
+{
+  ok("CLEARWIRE1. imports clearCanvas from the existing design/render.js — never a second/local clearing implementation", /import\s*\{[^}]*clearCanvas[^}]*\}\s*from\s*["'].*design\/render\.js["']/.test(previewSrc));
+
+  const liveEffectStart = codeOnly.indexOf("useEffect(() => {\n    const canvas = canvasRef.current;");
+  const liveEffectEnd = codeOnly.indexOf("}, [familyKey, preset, content, composition, heroImage]);");
+  const liveEffectBody = codeOnly.slice(liveEffectStart, liveEffectEnd);
+
+  const payloadInvalidStart = liveEffectBody.indexOf("if (!payloadValidation.valid)");
+  const payloadInvalidEnd = liveEffectBody.indexOf("} else if (!compositionValidation.valid)");
+  const payloadInvalidBranch = liveEffectBody.slice(payloadInvalidStart, payloadInvalidEnd);
+  ok("CLEARWIRE2. the payload-invalid branch calls clearCanvas(canvas)", /clearCanvas\(canvas\)/.test(payloadInvalidBranch));
+  ok("CLEARWIRE3. the payload-invalid branch draws nothing else — no renderCompositionToCanvas/renderCompositionMotionFrameToCanvas call alongside the clear (no accidental partial content)", !/renderComposition(ToCanvas|MotionFrameToCanvas)\(/.test(payloadInvalidBranch));
+
+  const compositionInvalidStart = liveEffectBody.indexOf("} else if (!compositionValidation.valid)");
+  const compositionInvalidEnd = liveEffectBody.indexOf("} else {", compositionInvalidStart);
+  const compositionInvalidBranch = liveEffectBody.slice(compositionInvalidStart, compositionInvalidEnd);
+  ok("CLEARWIRE4. the composition-invalid branch ALSO calls clearCanvas(canvas)", /clearCanvas\(canvas\)/.test(compositionInvalidBranch));
+  ok("CLEARWIRE5. the composition-invalid branch draws nothing else either", !/renderComposition(ToCanvas|MotionFrameToCanvas)\(/.test(compositionInvalidBranch));
+
+  const validBranchStart = liveEffectBody.indexOf("} else {", compositionInvalidStart);
+  const validBranch = liveEffectBody.slice(validBranchStart, liveEffectBody.length);
+  ok("CLEARWIRE6. the VALID branch never calls clearCanvas — the fix only touches the two branches that previously rendered nothing at all, valid-render behavior is untouched", !/clearCanvas\(/.test(validBranch));
+  ok("CLEARWIRE7. the valid branch still calls the real renderCompositionToCanvas exactly as before this fix", /renderCompositionToCanvas\(\{ canvas, template, payload, composition, drawables \}\)/.test(validBranch));
+
+  ok("CLEARWIRE8. clearCanvas is called exactly twice in the whole file — once per invalid branch, never inside onPreviewMotion or onExportPng (this fix is scoped to the live-preview effect's own invalid-state handling only)", (codeOnly.match(/clearCanvas\(canvas\)/g) || []).length === 2);
+}
+
 console.log(`\n${pass}/${pass + fail} assertions passed${fail ? ` — ${fail} FAILED` : ""}\n`);
 console.log("Browser-acceptance checklist still requiring MANUAL verification (not automated by this file):");
 console.log("  - Preview opens and the settled static frame renders immediately");
@@ -446,5 +566,13 @@ console.log("  - GATE A.7.2A: choosing a corrupted/truncated image file shows a 
 console.log("  - GATE A.7.2A: choosing an unsupported file type (e.g. a PDF renamed .jpg, or a real HEIC) is refused with a plain error before any decode is attempted");
 console.log("  - GATE A.7.2A: switching from Statement/Hero to Announcement or CTA and back clears the photo — it does not reappear until re-chosen");
 console.log("  - GATE A.7.2A: Export PNG's downloaded file visually contains the same photo currently shown in the viewport");
-console.log("  - GATE A.7.2A: rapidly selecting two files in quick succession (before the first finishes decoding) ends with the SECOND image showing, never the first\n");
+console.log("  - GATE A.7.2A: rapidly selecting two files in quick succession (before the first finishes decoding) ends with the SECOND image showing, never the first");
+console.log("  - GATE A.7.2B: clicking the image area on Statement/Hero selects it and shows a full-frame selection box");
+console.log("  - GATE A.7.2B: clicking the headline afterward selects headline instead, and the image selection box disappears");
+console.log("  - GATE A.7.2B: clicking the image again re-selects it and shows the Opacity control (not the text alignment control)");
+console.log("  - GATE A.7.2B: moving the opacity slider visibly dims/brightens the photo live in the canvas");
+console.log("  - GATE A.7.2B: exporting a PNG at a non-default opacity produces a file whose photo opacity matches the viewport exactly");
+console.log("  - GATE A.7.2B: switching to Announcement/CTA clears the selection and the image control entirely");
+console.log("  - GATE A.7.2B: switching back to Statement/Hero shows no stale image, no stale opacity, and nothing selected");
+console.log("  - GATE A.7.2B: with no photo chosen, clicking the image region still selects it and clearly shows \"Image / No photo added\" rather than looking like a broken/empty canvas\n");
 if (fail > 0) process.exit(1);
