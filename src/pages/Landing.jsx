@@ -163,6 +163,33 @@ export default function Landing() {
         </p>
       </Section>
 
+      {/* ---------- THE CANON ---------- */}
+      <Section>
+        <SectionKicker accent={PINK}>The Canon</SectionKicker>
+        <h2 style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: "clamp(24px,3.4vw,34px)",
+          letterSpacing: "-0.03em", margin: "0 0 22px", maxWidth: 760 }}>
+          Every action leaves a record.
+        </h2>
+        <p style={{ color: "rgba(245,241,233,.75)", fontSize: 15, maxWidth: 680, lineHeight: 1.7, marginBottom: 28 }}>
+          ElectionCanon calls this record the Canon — a single, tenant-isolated
+          history that every screen reads from and every action writes to.
+          Assign a ward. Report readiness. Send a message. Each becomes a
+          permanent, attributed fact, not a claim that quietly disappears
+          into someone's phone.
+        </p>
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
+          {["Action", "Event", "Record", "Canon"].map((step, i, arr) => (
+            <div key={step} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 11.5, letterSpacing: "0.08em",
+                textTransform: "uppercase", color: IVORY, border: `1px solid ${BORDER}`, padding: "10px 16px" }}>
+                {step}
+              </div>
+              {i < arr.length - 1 && <span style={{ color: MUTED, fontSize: 15 }}>→</span>}
+            </div>
+          ))}
+        </div>
+      </Section>
+
       {/* ---------- HOW ELECTIONCANON WORKS ---------- */}
       <Section id="how-it-works">
         <SectionKicker>How ElectionCanon Works</SectionKicker>
@@ -297,6 +324,45 @@ export default function Landing() {
               ))}
             </div>
           </div>
+        </div>
+      </Section>
+
+      {/* ---------- ARCHITECTURE ---------- */}
+      <Section style={{ borderTop: `1px solid ${BORDER}` }}>
+        <SectionKicker>Architecture</SectionKicker>
+        <h2 style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: "clamp(24px,3.4vw,34px)",
+          letterSpacing: "-0.03em", margin: "0 0 22px", maxWidth: 760 }}>
+          Rooms read. Events write.
+        </h2>
+        <p style={{ color: "rgba(245,241,233,.75)", fontSize: 15, maxWidth: 680, lineHeight: 1.7 }}>
+          No screen stores election state on its own. An action — registering
+          a candidate, assigning a ward, sending a message — publishes an
+          event to an append-only, tenant-scoped log. Every screen is a live
+          view over that log, not a cache that can drift out of sync or be
+          quietly edited after the fact.
+        </p>
+      </Section>
+
+      {/* ---------- OPEN SOURCE / COMMUNITY ---------- */}
+      <Section>
+        <SectionKicker accent={PINK}>Open Source</SectionKicker>
+        <h2 style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: "clamp(24px,3.4vw,34px)",
+          letterSpacing: "-0.03em", margin: "0 0 22px", maxWidth: 760 }}>
+          Inspect the machine.
+        </h2>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 24 }}>
+          <p style={{ color: "rgba(245,241,233,.75)", fontSize: 14.5, lineHeight: 1.7, margin: 0 }}>
+            ElectionCanon is licensed under AGPL-3.0 — read it, run it
+            locally, question it, and improve it. Election infrastructure
+            should be inspectable by the people who rely on it, not a black
+            box.
+          </p>
+          <p style={{ color: "rgba(245,241,233,.75)", fontSize: 14.5, lineHeight: 1.7, margin: 0 }}>
+            <b style={{ color: IVORY }}>Build with us.</b> An independent,
+            ElectionCanon-controlled public repository is a launch dependency
+            still in progress — contribution paths (issues, discussions, a
+            public roadmap) open as soon as it is live.
+          </p>
         </div>
       </Section>
 
