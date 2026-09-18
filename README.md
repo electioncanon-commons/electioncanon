@@ -57,6 +57,12 @@ grounded in real recorded facts rather than someone's memory.
 - **Campaign / workspace activation** — an authenticated user creates or
   joins exactly one campaign workspace; membership and role are enforced
   by database row-level security, not client-side trust.
+- **Electoral geography** — Election, Office, State and Constituency
+  selection, with LGA mapping where authoritative geography data exists.
+- **Campaign organisation** — invite an LGA Coordinator, Ward Coordinator
+  or Polling-Unit Agent by email, each landing directly in their own
+  scoped workspace; every coordinator's territory is a real, assigned
+  record, not a claim.
 - **Mobilization** — people, wards, assignments and tasks, backed by real
   recorded events (not a static contact list).
 - **Coordination chat** — real, persisted, tenant-scoped messaging with a
