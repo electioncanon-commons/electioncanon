@@ -359,9 +359,9 @@ export default function Landing() {
           </p>
           <p style={{ color: "rgba(245,241,233,.75)", fontSize: 14.5, lineHeight: 1.7, margin: 0 }}>
             <b style={{ color: IVORY }}>Build with us.</b> An independent,
-            ElectionCanon-controlled public repository is a launch dependency
-            still in progress — contribution paths (issues, discussions, a
-            public roadmap) open as soon as it is live.
+            ElectionCanon-controlled public repository is now live. Read it,
+            run it locally, question it, and contribute as the project
+            develops.
           </p>
         </div>
       </Section>
