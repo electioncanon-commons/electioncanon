@@ -71,32 +71,16 @@ the next time this question comes up — re-verify anything time-sensitive
       CODE_OF_CONDUCT/VOICE) present at repository root, reviewed for
       this repository's own context (relative links, "Provenance"
       section in README.md added to explain the extraction honestly)
-- [ ] **RELEASE BLOCKER / FOUNDER ACTION — independent public
-      repository required.** ElectionCanon must have no public
-      relationship with Forge (see product positioning discipline).
-      `forge-manufacturing-commons` is a Forge-owned GitHub
-      organisation and must **not** host ElectionCanon's public
-      repository — the "View source on GitHub" link on the public
-      website has been deliberately removed until an independent
-      repository exists (see `src/pages/Landing.jsx`'s footer). This
-      is not something an agent working in this repository can resolve
-      on its own: it requires the founder to create or designate a
-      GitHub account/organisation that has no Forge branding or
-      ownership, then push this repository there. Do not move, rename,
-      or transfer the existing `forge-manufacturing-commons` org or
-      any repository inside it — treat the independent repository as a
-      brand-new destination, not a migration. Once it exists:
-      ```
-      gh repo create <independent-org-or-account>/electioncanon --private --source=. --remote=origin
-      git push -u origin main
-      ```
-      (use `--public` instead of `--private` only once the checklist
-      below is fully cleared). After pushing, re-run the independent
-      clone verification (below) against the real GitHub remote, not
-      just the local path, before treating this as done, and restore
-      the footer link in `Landing.jsx` pointing at the real URL.
-- [ ] **GitHub repository visibility** — not yet applicable; the
-      repository does not exist on GitHub yet (see above).
+- [x] **Independent public repository** — resolved. The repository
+      now lives at `electioncanon-commons/electioncanon`, a GitHub
+      organisation with no Forge branding or ownership, distinct from
+      `forge-manufacturing-commons` (verified: that org was not moved,
+      renamed, or touched). The "View source on GitHub" footer link in
+      `src/pages/Landing.jsx` points at the real, independent URL and
+      has been verified live. `main` was pushed and re-verified against
+      the real GitHub remote, not just a local clone.
+- [x] **GitHub repository visibility** — public (verified via the
+      GitHub API: `"visibility": "public"`).
 - [ ] **Real mobile-device/DevTools verification** — not attempted in
       this extraction pass. The source monorepo's own release-readiness
       work recorded this as blocked by browser-automation tooling
@@ -207,6 +191,11 @@ repository into a separate directory with the source monorepo absent
 from that directory's ancestry.
 
 ## GitHub publication steps (once the above are cleared)
+
+**Status: completed.** The repository was created at
+`electioncanon-commons/electioncanon` (public) and pushed; steps below
+are kept as the historical record of what was done, not as outstanding
+work.
 
 1. Create the repository (see "GitHub repository creation + push"
    above) — owner action, blocked in this session by missing tooling.
