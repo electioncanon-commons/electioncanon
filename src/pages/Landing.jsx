@@ -20,8 +20,18 @@
 import { useNavigate } from "react-router-dom";
 import {
   BLACK, IVORY, TEAL, PINK, MUTED, BORDER, UI, DISPLAY, Panel,
+  CAPABILITIES_AVAILABLE_NOW, CAPABILITIES_COMING_NEXT,
+  // AMBER: functional only, never a brand accent on this page — see
+  // docs/DESIGN_SYSTEM.md. Used below solely for the "Simulated" tag,
+  // the same warning role it plays as DemoTag's background elsewhere.
+  AMBER,
 } from "./election/shared.jsx";
 import { FORGE_CLIPS } from "../os/geometry.js";
+
+// Any AVAILABLE_NOW capability whose own copy says "simulat..." is real and
+// shipped, but its DATA is demonstration data, not an official result — flag
+// it distinctly rather than let it read identically to a fully-live feature.
+const isSimulated = (text) => /simulat/i.test(text);
 
 const WORKFLOW_STEPS = Object.freeze([
   { label: "Election", body: "Choose your election — presidential, senatorial, gubernatorial, and more." },
@@ -237,6 +247,56 @@ export default function Landing() {
               )}
             </div>
           ))}
+        </div>
+      </Section>
+
+      {/* ---------- WHAT EXISTS TODAY ---------- */}
+      <Section style={{ borderTop: `1px solid ${BORDER}` }}>
+        <SectionKicker>What Exists Today</SectionKicker>
+        <h2 style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: "clamp(24px,3.4vw,34px)",
+          letterSpacing: "-0.03em", margin: "0 0 12px", maxWidth: 760 }}>
+          Operational, simulated, and in development — never blurred together.
+        </h2>
+        <p style={{ color: "rgba(245,241,233,.75)", fontSize: 14.5, maxWidth: 680, lineHeight: 1.7, marginBottom: 32 }}>
+          This list is the same single source of truth the product's own
+          first-run screen reads from. Anything marked <b style={{ color: TEAL }}>simulated</b> is
+          real, shipped functionality operating on demonstration data — never an
+          official election result.
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 24 }}>
+          <div>
+            <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.14em",
+              textTransform: "uppercase", color: TEAL, marginBottom: 14 }}>Operational</div>
+            <div style={{ display: "grid", gap: 2 }}>
+              {CAPABILITIES_AVAILABLE_NOW.map((c, i) => (
+                <div key={c} style={{ display: "flex", gap: 10, alignItems: "flex-start",
+                  padding: "10px 0", borderTop: i === 0 ? "none" : `1px solid ${BORDER}` }}>
+                  <span style={{ color: TEAL, fontFamily: UI, fontWeight: 700, flexShrink: 0 }}>✓</span>
+                  <span style={{ fontFamily: UI, fontSize: 12.5, color: "rgba(245,241,233,.85)", lineHeight: 1.6 }}>
+                    {c}
+                    {isSimulated(c) && (
+                      <span style={{ marginLeft: 8, fontFamily: UI, fontWeight: 800, fontSize: 9,
+                        letterSpacing: "0.1em", textTransform: "uppercase", color: BLACK, background: AMBER,
+                        padding: "2px 6px", whiteSpace: "nowrap" }}>Simulated</span>
+                    )}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.14em",
+              textTransform: "uppercase", color: PINK, marginBottom: 14 }}>In Development</div>
+            <div style={{ display: "grid", gap: 2 }}>
+              {CAPABILITIES_COMING_NEXT.map((c, i) => (
+                <div key={c} style={{ display: "flex", gap: 10, alignItems: "flex-start",
+                  padding: "10px 0", borderTop: i === 0 ? "none" : `1px solid ${BORDER}` }}>
+                  <span style={{ color: MUTED, fontFamily: UI, fontWeight: 700, flexShrink: 0 }}>○</span>
+                  <span style={{ fontFamily: UI, fontSize: 12.5, color: MUTED, lineHeight: 1.6 }}>{c}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       </Section>
 

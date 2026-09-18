@@ -266,8 +266,23 @@ console.log("\nO — ROUTING: additive, existing routes untouched");
   // UX cleanup pass P1-4), added the same additive, named way /election and
   // /access already were. The count grows to 5; the "nothing generated
   // from a loop" invariant is exactly as true as before.
-  ok("O2. the route table is exactly five explicit routes (/, /election, /access, /invite/:token, /reset-password) — nothing generated from a loop",
-     !/\.map\(/.test(app) && (app.match(/<Route path=/g) ?? []).length === 5);
+  //
+  // PUBLIC LAUNCH PASS — creative/ad-film preview routes (e04–e09-preview,
+  // ad01-preview, ...) are a distinct, self-identifying category: internal
+  // review surfaces for launch assets, never linked from product UI, and
+  // named with an explicit "-preview" suffix so they can never be mistaken
+  // for a real product route. O2 now checks the 5 PRODUCT routes exactly,
+  // separately from however many "-preview" routes exist — the invariant
+  // this test protects (nothing hidden inside a generic loop, no route
+  // added without a name and a reason) stays exactly as true as before.
+  const routePaths = [...app.matchAll(/<Route path="([^"]+)"/g)].map((m) => m[1]);
+  const productRoutes = routePaths.filter((p) => !p.replace(/^\//, "").endsWith("-preview"));
+  const previewRoutes = routePaths.filter((p) => p.replace(/^\//, "").endsWith("-preview"));
+  ok("O2. the route table has exactly five explicit PRODUCT routes (/, /election, /access, /invite/:token, /reset-password) — nothing generated from a loop, any other routes are self-identifying '-preview' routes",
+     !/\.map\(/.test(app) &&
+     productRoutes.length === 5 &&
+     ["/", "/election", "/access", "/invite/:token", "/reset-password"].every((p) => productRoutes.includes(p)) &&
+     previewRoutes.length + productRoutes.length === routePaths.length);
   ok("O3. /access is present, registered the same explicit way as /election",
      /<Route path="\/access"\s+element=\{<Access \/>\}\s*\/>/.test(app));
   ok("O5. /reset-password is present, registered the same explicit way",
