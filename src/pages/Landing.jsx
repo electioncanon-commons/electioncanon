@@ -398,17 +398,12 @@ export default function Landing() {
       </Section>
 
       {/* ---------- FOOTER ---------- */}
-      {/* RELEASE BLOCKER / FOUNDER ACTION: the public source link is
-          intentionally omitted here. It previously pointed at a
-          Forge-hosted GitHub organisation, which must never be linked
-          from ElectionCanon's public surface. An independent public
-          repository is a separate launch dependency — once one exists,
-          restore a "View source on GitHub" link here pointing at it. */}
       <footer style={{ borderTop: `1px solid ${BORDER}`, padding: "clamp(28px,5vw,40px) clamp(20px,5vw,60px)" }}>
         <div style={{ maxWidth: 1180, margin: "0 auto", display: "flex", flexWrap: "wrap",
           justifyContent: "space-between", gap: 14, fontFamily: UI, fontSize: 12, color: MUTED }}>
           <div>ElectionCanon — open source under AGPL-3.0.</div>
-          <div style={{ color: MUTED }}>Public repository — coming soon</div>
+          <a href="https://github.com/electioncanon-commons/electioncanon" target="_blank" rel="noreferrer"
+            style={{ color: TEAL, textDecoration: "none", fontWeight: 700 }}>View source on GitHub →</a>
         </div>
       </footer>
     </div>
