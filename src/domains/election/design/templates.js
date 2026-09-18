@@ -228,7 +228,7 @@ export const TEMPLATES = Object.freeze({
   [ASSET_TYPE.MESSAGING_GRAPHIC]: Object.freeze({
     // Rendered exactly like any other image template — sized for sharing
     // through a chat channel. Distribution through a real chat-app channel
-    // is documented, not implemented (see docs/electioncanon/ for the
+    // is documented, not implemented (see docs/WHATSAPP.md for the
     // channel contract doc and the non-imported stub under channels/) —
     // this label deliberately says nothing about a specific channel, since
     // no channel is actually wired.

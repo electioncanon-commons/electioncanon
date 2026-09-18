@@ -46,11 +46,11 @@ export const VOICE_STATUS = Object.freeze({
 // explicit, commented table — not a duplicated GUESS — and
 // `test/language-capability.consumer.mjs` asserts the two stay in sync by
 // reading contract.mjs's own PROVIDER_IDS/LANGUAGES directly (Node can
-// import contract.mjs — it has no Deno APIs, same reason forge-ai's own
-// contract.mjs is dual-run).
+// import contract.mjs directly — it has no Deno APIs, the same reason
+// it can be dual-run in both Deno production and the Node test suite).
 const VOICE_STT_LOCALES = Object.freeze({
   // Google Cloud Speech-to-Text (Chirp/Chirp 2) — real, documented locales.
-  // See docs/electioncanon/VOICE.md for the citation and why Pidgin/TTS
+  // See docs/VOICE.md for the citation and why Pidgin/TTS
   // are absent from this table rather than guessed at.
   en: "en-US", ha: "ha-NG", yo: "yo-NG", ig: "ig-NG",
 });
@@ -96,7 +96,7 @@ export function capabilityFor(code) {
     detection: detected,
     text,
     voiceStt: voiceSttStatusFor(code),
-    voiceTts: VOICE_STATUS.UNAVAILABLE, // no TTS provider found this pass for any of these — see docs/electioncanon/VOICE.md §B
+    voiceTts: VOICE_STATUS.UNAVAILABLE, // no TTS provider found this pass for any of these — see docs/VOICE.md §B
   });
 }
 

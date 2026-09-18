@@ -10,7 +10,7 @@
 // overridable from this UI), and a verified result is labelled
 // "ElectionCanon Verified Evidence" — never "Official Result" — because no
 // OCR runs and this is not an INEC/IReV integration. See
-// docs/electioncanon/ARCHITECTURE.md's evidence-architecture section.
+// docs/ARCHITECTURE.md's evidence-architecture section.
 // ============================================================
 
 import { useState } from "react";

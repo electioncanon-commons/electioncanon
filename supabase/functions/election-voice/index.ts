@@ -1,12 +1,11 @@
 // ============================================================
 // ELECTIONCANON VOICE — SERVER-SIDE TRANSPORT BOUNDARY  (Alpha 1.2)
 //
-// Same purpose as supabase/functions/forge-ai/index.ts: the only place
-// that may hold a voice-provider secret, so the browser never has to.
-// This function is TRANSPORT ONLY — the request/response contract and
-// the (currently empty) provider registry live in contract.mjs, plain
-// JavaScript with no Deno APIs, so Deno runs it here and the Node test
-// suite runs the exact same code.
+// This is the only place that may hold a voice-provider secret, so the
+// browser never has to. This function is TRANSPORT ONLY — the request/
+// response contract and the (currently empty) provider registry live in
+// contract.mjs, plain JavaScript with no Deno APIs, so Deno runs it here
+// and the Node test suite runs the exact same code.
 //
 // WHAT THIS FUNCTION IS STRUCTURALLY INCAPABLE OF
 //   * No database client — never imports @supabase/supabase-js, holds no
@@ -14,7 +13,7 @@
 //   * No provider is assumed. contract.mjs's PROVIDER_PROFILES is
 //     genuinely empty this phase, so every request returns
 //     PROVIDER_NOT_SELECTED — a real, honest, non-error outcome, not a
-//     placeholder bug. See docs/electioncanon/VOICE.md.
+//     placeholder bug. See docs/VOICE.md.
 // ============================================================
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -47,9 +46,8 @@ Deno.serve(async (req: Request) => {
   const validation = op === "stt" ? validateSttRequest(body) : op === "tts" ? validateTtsRequest(body) : { valid: false, reason: `"${op}" is not a recognised operation` };
   if (!validation.valid) return refuse(validation.reason, "BAD_REQUEST", 400);
 
-  // Provider selected by ENVIRONMENT, never by the request — same
-  // discipline as forge-ai/index.ts, so a caller cannot choose which
-  // vendor's key gets used.
+  // Provider selected by ENVIRONMENT, never by the request, so a caller
+  // cannot choose which vendor's key gets used.
   const resolved = resolveProfile(Deno.env.toObject());
   if (!resolved.ok) return refuse(resolved.reason, resolved.code, 200);
 

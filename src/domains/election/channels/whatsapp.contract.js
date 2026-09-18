@@ -3,7 +3,7 @@
 //
 // This file is NOT imported anywhere in the app. It exists only to make
 // the shape of a future WhatsApp channel adapter concrete in code, next
-// to the prose contract in docs/electioncanon/WHATSAPP.md (read that
+// to the prose contract in docs/WHATSAPP.md (read that
 // file first — this stub follows it function-for-function).
 //
 // No WhatsApp Business API credentials exist in this codebase. No
@@ -23,7 +23,7 @@
 // ============================================================
 
 function notImplemented(name) {
-  throw new Error(`election channel-adapter contract: ${name} is a documented shape, not an implemented channel — see this file's header comment and docs/electioncanon/ for the channel contract doc`);
+  throw new Error(`election channel-adapter contract: ${name} is a documented shape, not an implemented channel — see this file's own header comment for the channel contract doc`);
 }
 
 /**

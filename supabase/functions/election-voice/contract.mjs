@@ -1,18 +1,19 @@
 // ============================================================
 // ELECTIONCANON VOICE — WIRE CONTRACT  (Alpha 1.2)
 //
-// The request/response shapes at the voice boundary, modelled directly on
-// supabase/functions/forge-ai/contract.mjs — plain JavaScript, no Deno
-// APIs, so Deno runs it in production and Node runs the exact same code
-// in the test suite. See that file's own header for why the validator
-// being under test (not just the transport) is the actual security
-// control.
+// The request/response shapes at the voice boundary — plain JavaScript,
+// no Deno APIs, so Deno runs it in production and Node runs the exact
+// same code in the test suite. The validator itself (not just the
+// transport wrapper in index.ts) is what test/election-voice.consumer.mjs
+// exercises directly, because the validator — not the transport — is the
+// actual security control: it's what decides whether a request shape is
+// acceptable before any provider is ever consulted.
 //
 // PROVIDER-AGNOSTIC BY CONSTRUCTION. `PROVIDER_PROFILES` held ZERO
 // entries through Alpha 1.2 — the user explicitly deferred picking a
 // vendor until pricing/language coverage could be compared. Alpha 1.3
 // did that comparison for real (Google Cloud, Azure, and three
-// Nigeria-specific specialists — see docs/electioncanon/VOICE.md §
+// Nigeria-specific specialists — see docs/VOICE.md §
 // "Provider comparison" for the sourced table) and registers exactly
 // ONE real profile below: Google Cloud Speech-to-Text (Chirp/Chirp 2),
 // the only candidate with BOTH documented Hausa/Yoruba/Igbo coverage AND
@@ -39,9 +40,7 @@ export const LANGUAGES = Object.freeze(["en", "ha", "yo", "ig", "pcm", "urh", "f
  *   tts   text in   -> audio out
  *
  * Kept separate because they carry different payload shapes and different
- * risk (an uploaded audio blob vs. a short text string) — exactly the
- * same reasoning forge-ai/contract.mjs gives for splitting `ask` from
- * `interpret`.
+ * risk (an uploaded audio blob vs. a short text string).
  */
 export const OPERATIONS = Object.freeze(["stt", "tts"]);
 
@@ -96,8 +95,7 @@ export const PROVIDER_PROFILES = Object.freeze({
    * EVERY FIELD BELOW WAS READ FROM THE OFFICIAL REST REFERENCE, NOT
    * REMEMBERED (docs.cloud.google.com/speech-to-text/v2/docs/reference/
    * rest/v2/projects.locations.recognizers/recognize, and the
-   * RecognitionConfig reference) — the same discipline forge-ai's own
-   * profiles document for their vendors.
+   * RecognitionConfig reference).
    *
    *   Endpoint: POST https://speech.googleapis.com/v2/{recognizer=
    *     projects/*&#47;locations/*&#47;recognizers/*}:recognize — `_` is a
@@ -112,16 +110,16 @@ export const PROVIDER_PROFILES = Object.freeze({
    *
    * A REAL, DOCUMENTED LIMITATION, STATED RATHER THAN HIDDEN: Google's
    * bearer token here is a short-lived OAuth2 access token minted from a
-   * service-account credential — NOT a static long-lived key like
-   * forge-ai's OpenAI profile. This repository does not implement the
-   * service-account JWT-bearer exchange (custom RS256 JWT signing code
+   * service-account credential — NOT a static long-lived key. This
+   * repository does not implement the service-account JWT-bearer
+   * exchange (custom RS256 JWT signing code
    * that could never be tested live here, without a real Google project,
    * is a correctness risk this codebase's own discipline weighs against
    * shipping unverified). `ELECTION_VOICE_PROVIDER_KEY` for this profile
    * is therefore expected to already BE a valid access token, refreshed
    * by the deployer's own operational tooling (e.g. a scheduled job
    * running `gcloud auth print-access-token` for the service account, or
-   * a small token-minting sidecar) — see docs/electioncanon/VOICE.md for
+   * a small token-minting sidecar) — see docs/VOICE.md for
    * the full reasoning and the upgrade path to a real JWT exchange.
    *
    * Pidgin and Urhobo are absent from `sttSupportedLangs` on purpose —
@@ -156,11 +154,13 @@ export const PROVIDER_PROFILES = Object.freeze({
 
 export const PROVIDER_IDS = Object.freeze(Object.keys(PROVIDER_PROFILES));
 
-/** Same three-failure shape as forge-ai/contract.mjs's resolveProfile,
- *  plus a fourth: a profile that exists and is configured but names no
- *  project (google_stt needs ELECTION_VOICE_GOOGLE_PROJECT_ID to build
- *  its endpoint URL) fails closed with its own distinct code rather than
- *  attempting a request to a malformed URL. */
+/** Fails closed at each of four checks in turn: no provider selected
+ *  (PROVIDER_NOT_SELECTED), an unrecognised provider id (PROVIDER_UNKNOWN),
+ *  a selected provider missing its key (PROVIDER_NOT_CONFIGURED), and —
+ *  a profile that exists and is configured but names no project
+ *  (google_stt needs ELECTION_VOICE_GOOGLE_PROJECT_ID to build its
+ *  endpoint URL) — the same PROVIDER_NOT_CONFIGURED code with a distinct
+ *  reason string, rather than attempting a request to a malformed URL. */
 export function resolveProfile(env = {}) {
   const id = env.ELECTION_VOICE_PROVIDER;
   if (!id) {

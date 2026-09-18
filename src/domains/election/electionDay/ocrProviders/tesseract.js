@@ -17,7 +17,7 @@
 // first use, then cached by the browser — because bundling per-language
 // model files into this repository does not scale and every other
 // self-hosted Tesseract deployment makes the same trade-off. This is
-// stated plainly here and in docs/electioncanon/OCR.md; it is not
+// stated plainly here and in docs/OCR.md; it is not
 // self-hosted end-to-end and this file does not claim otherwise.
 //
 // NEVER labelled by name in the public UI — the Election Day screens say

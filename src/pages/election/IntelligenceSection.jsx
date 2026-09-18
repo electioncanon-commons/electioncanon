@@ -75,8 +75,8 @@ function AskPanel({ view, log }) {
           placeholder="Ask ElectionCanon…" aria-label="Ask ElectionCanon" style={{ ...inputStyle, marginBottom: 0, flex: 1 }} />
         <button type="button" disabled title={
           capabilityFor("en").voiceStt === VOICE_STATUS.AVAILABLE_PENDING_CONFIG
-            ? "Voice input is architected against a real, researched speech provider (Google Cloud Speech-to-Text — see docs/electioncanon/VOICE.md) but no vendor key is configured in this deployment yet."
-            : "No voice input provider was found for this language this pass — see docs/electioncanon/VOICE.md."
+            ? "Voice input is architected against a real, researched speech provider (Google Cloud Speech-to-Text — see docs/VOICE.md) but no vendor key is configured in this deployment yet."
+            : "No voice input provider was found for this language this pass — see docs/VOICE.md."
         } style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase",
             padding: "11px 14px", border: `1px solid ${BORDER}`, background: "transparent", color: MUTED, cursor: "not-allowed" }}>
           Voice · soon

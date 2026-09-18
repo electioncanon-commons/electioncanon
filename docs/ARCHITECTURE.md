@@ -142,7 +142,7 @@ parallel code path), and text-to-speech happens strictly *after*
 `planElectionResponse` returns its answer text, reading that exact string
 aloud. What is still genuinely absent: no voice vendor is configured
 (`contract.mjs`'s provider registry is empty on purpose — see
-`docs/electioncanon/VOICE.md`), and no microphone-capture UI is wired
+[VOICE.md](./VOICE.md)), and no microphone-capture UI is wired
 into any room yet — the Ask panel's mic button is present and honestly
 disabled. No audio permission is ever requested by this codebase today.
 
@@ -167,7 +167,7 @@ result's evidence photo can be run through `src/domains/election/
 electionDay/ocr.js` (a `provider.js`-shaped, never-throws abstraction) —
 by default `ocrProviders/tesseract.js`, a genuinely working, entirely
 client-side OCR engine (tesseract.js/WebAssembly; see
-`docs/electioncanon/OCR.md` for exactly what is and isn't self-hosted).
+[OCR.md](./OCR.md) for exactly what is and isn't self-hosted).
 The reading is recorded as its own immutable `RESULT_OCR_PROCESSED`
 event — a SEPARATE fact from `RESULT_CAPTURED`'s human-entered
 `extractedFields` and from `RESULT_VERIFIED`'s `verificationStatus`, so

@@ -13,7 +13,7 @@
 // NO SECRET HERE. Exactly like provider.js: no voice-provider key, no
 // `VITE_` variable that could carry one, and this file does not even
 // name the server-side environment variable a future key would live in
-// (see docs/electioncanon/VOICE.md for that name) — the strongest form
+// (see docs/VOICE.md for that name) — the strongest form
 // of the guarantee is that the client cannot leak what it never reads.
 // ============================================================
 

@@ -1,8 +1,7 @@
 // ============================================================
 // ELECTIONCANON ALPHA 1.3 — VOICE PROVIDER, NEVER THROWS
 //
-// Same discipline as forge-ai's own provider failure-mode tests: an
-// injected transport (here, a mocked `supabase.functions.invoke`)
+// An injected transport (here, a mocked `supabase.functions.invoke`)
 // proves every real failure/success shape maps to the right
 // VOICE_STATUS, and that a genuinely browser-incapable environment
 // never even reaches the network.
