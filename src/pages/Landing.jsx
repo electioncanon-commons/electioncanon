@@ -19,7 +19,7 @@
 
 import { useNavigate } from "react-router-dom";
 import {
-  BLACK, IVORY, TEAL, AMBER, PINK, MUTED, BORDER, UI, DISPLAY, Panel,
+  BLACK, IVORY, TEAL, PINK, MUTED, BORDER, UI, DISPLAY, Panel,
 } from "./election/shared.jsx";
 import { FORGE_CLIPS } from "../os/geometry.js";
 
@@ -37,9 +37,9 @@ const WORKFLOW_STEPS = Object.freeze([
 
 const HIERARCHY = Object.freeze([
   { label: "Campaign Command", accent: TEAL, body: "The campaign's national coordination room — where the whole organisation stays aligned." },
-  { label: "LGA Coordinator", accent: AMBER, body: "Responsible for one Local Government Area, with a coordination room scoped to exactly that territory." },
-  { label: "Ward Coordinator", accent: PINK, body: "Responsible for one ward inside their LGA, invited directly by that LGA's own coordinator." },
-  { label: "Polling Unit Agent", accent: TEAL, body: "Responsible for one polling unit, the front line of election day itself." },
+  { label: "LGA Coordinator", accent: PINK, body: "Responsible for one Local Government Area, with a coordination room scoped to exactly that territory." },
+  { label: "Ward Coordinator", accent: TEAL, body: "Responsible for one ward inside their LGA, invited directly by that LGA's own coordinator." },
+  { label: "Polling Unit Agent", accent: PINK, body: "Responsible for one polling unit, the front line of election day itself." },
 ]);
 
 const WORKSPACE_SECTIONS = Object.freeze([
@@ -54,10 +54,10 @@ const WORKSPACE_SECTIONS = Object.freeze([
 
 const DIFFERENCE = Object.freeze([
   { label: "People", accent: TEAL, body: "Every coordinator and agent is a real, invited, accountable actor — never an anonymous login." },
-  { label: "Territory", accent: AMBER, body: "Real electoral geography, not a free-text field someone typed in." },
+  { label: "Territory", accent: PINK, body: "Real electoral geography, not a free-text field someone typed in." },
   { label: "Responsibility", accent: PINK, body: "A recorded assignment tied to a real person and a real place, not a job title." },
   { label: "Readiness", accent: TEAL, body: "Four honest states — COMPLETE, INCOMPLETE, AT RISK, UNKNOWN — never a guess dressed up as a percentage." },
-  { label: "Accountability", accent: AMBER, body: "An immutable event log every screen reads from, so nothing is ever out of sync or quietly rewritten." },
+  { label: "Accountability", accent: TEAL, body: "An immutable event log every screen reads from, so nothing is ever out of sync or quietly rewritten." },
 ]);
 
 const AUDIENCES = Object.freeze([
@@ -71,7 +71,7 @@ function CtaButton({ children, onClick, primary }) {
       fontFamily: UI, fontWeight: 700, fontSize: 12.5, letterSpacing: "0.12em", textTransform: "uppercase",
       padding: "15px 26px", cursor: "pointer", clipPath: FORGE_CLIPS.button,
       border: primary ? "none" : `1px solid ${BORDER}`,
-      background: primary ? AMBER : "transparent",
+      background: primary ? TEAL : "transparent",
       color: primary ? BLACK : IVORY,
     }}>
       {children}
@@ -177,7 +177,7 @@ export default function Landing() {
 
       {/* ---------- FROM CAMPAIGN COMMAND TO POLLING UNIT ---------- */}
       <Section>
-        <SectionKicker accent={AMBER}>From Campaign Command to Polling Unit</SectionKicker>
+        <SectionKicker accent={PINK}>From Campaign Command to Polling Unit</SectionKicker>
         <h2 style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: "clamp(24px,3.4vw,34px)",
           letterSpacing: "-0.03em", margin: "0 0 32px", maxWidth: 760 }}>
           Every person gets a real operational responsibility — not just another name in a group chat.
@@ -207,7 +207,7 @@ export default function Landing() {
         </h2>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 16 }}>
           {WORKSPACE_SECTIONS.map((s, i) => (
-            <Panel key={s.label} accent={[TEAL, AMBER, PINK][i % 3]}>
+            <Panel key={s.label} accent={[TEAL, PINK][i % 2]}>
               <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 13, color: IVORY, marginBottom: 8 }}>{s.label}</div>
               <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED, lineHeight: 1.6 }}>{s.body}</div>
             </Panel>
@@ -246,7 +246,7 @@ export default function Landing() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 14, marginBottom: 24 }}>
           {AUDIENCES.map((a, i) => (
             <div key={a} style={{ fontFamily: UI, fontWeight: 700, fontSize: 13.5, color: IVORY,
-              borderLeft: `2px solid ${[TEAL, AMBER, PINK][i % 3]}`, padding: "8px 0 8px 14px" }}>{a}</div>
+              borderLeft: `2px solid ${[TEAL, PINK][i % 2]}`, padding: "8px 0 8px 14px" }}>{a}</div>
           ))}
         </div>
         <p style={{ color: "rgba(245,241,233,.65)", fontSize: 13, maxWidth: 680, lineHeight: 1.7 }}>
@@ -258,7 +258,7 @@ export default function Landing() {
 
       {/* ---------- START ---------- */}
       <Section style={{ borderTop: `1px solid ${BORDER}` }}>
-        <SectionKicker accent={AMBER}>Start</SectionKicker>
+        <SectionKicker accent={PINK}>Start</SectionKicker>
         <h2 style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: "clamp(28px,4vw,44px)",
           letterSpacing: "-0.03em", margin: "0 0 16px", maxWidth: 760 }}>
           Create your ElectionCanon campaign.
@@ -272,12 +272,17 @@ export default function Landing() {
       </Section>
 
       {/* ---------- FOOTER ---------- */}
+      {/* RELEASE BLOCKER / FOUNDER ACTION: the public source link is
+          intentionally omitted here. It previously pointed at a
+          Forge-hosted GitHub organisation, which must never be linked
+          from ElectionCanon's public surface. An independent public
+          repository is a separate launch dependency — once one exists,
+          restore a "View source on GitHub" link here pointing at it. */}
       <footer style={{ borderTop: `1px solid ${BORDER}`, padding: "clamp(28px,5vw,40px) clamp(20px,5vw,60px)" }}>
         <div style={{ maxWidth: 1180, margin: "0 auto", display: "flex", flexWrap: "wrap",
           justifyContent: "space-between", gap: 14, fontFamily: UI, fontSize: 12, color: MUTED }}>
           <div>ElectionCanon — open source under AGPL-3.0.</div>
-          <a href="https://github.com/forge-manufacturing-commons/electioncanon" target="_blank" rel="noreferrer"
-            style={{ color: TEAL, textDecoration: "none", fontWeight: 700 }}>View source on GitHub →</a>
+          <div style={{ color: MUTED }}>Public repository — coming soon</div>
         </div>
       </footer>
     </div>

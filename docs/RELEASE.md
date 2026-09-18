@@ -71,19 +71,30 @@ the next time this question comes up — re-verify anything time-sensitive
       CODE_OF_CONDUCT/VOICE) present at repository root, reviewed for
       this repository's own context (relative links, "Provenance"
       section in README.md added to explain the extraction honestly)
-- [ ] **GitHub repository creation + push** — `BLOCKED: NO TOOLING
-      AVAILABLE IN THIS SESSION`. No `gh` CLI is installed and no GitHub
-      MCP/API tool is connected to this session, so the repository
-      cannot be created or pushed to from here. Ready-to-run commands
-      for the owner, from this directory:
+- [ ] **RELEASE BLOCKER / FOUNDER ACTION — independent public
+      repository required.** ElectionCanon must have no public
+      relationship with Forge (see product positioning discipline).
+      `forge-manufacturing-commons` is a Forge-owned GitHub
+      organisation and must **not** host ElectionCanon's public
+      repository — the "View source on GitHub" link on the public
+      website has been deliberately removed until an independent
+      repository exists (see `src/pages/Landing.jsx`'s footer). This
+      is not something an agent working in this repository can resolve
+      on its own: it requires the founder to create or designate a
+      GitHub account/organisation that has no Forge branding or
+      ownership, then push this repository there. Do not move, rename,
+      or transfer the existing `forge-manufacturing-commons` org or
+      any repository inside it — treat the independent repository as a
+      brand-new destination, not a migration. Once it exists:
       ```
-      gh repo create forge-manufacturing-commons/electioncanon --private --source=. --remote=origin
+      gh repo create <independent-org-or-account>/electioncanon --private --source=. --remote=origin
       git push -u origin main
       ```
       (use `--public` instead of `--private` only once the checklist
       below is fully cleared). After pushing, re-run the independent
       clone verification (below) against the real GitHub remote, not
-      just the local path, before treating this as done.
+      just the local path, before treating this as done, and restore
+      the footer link in `Landing.jsx` pointing at the real URL.
 - [ ] **GitHub repository visibility** — not yet applicable; the
       repository does not exist on GitHub yet (see above).
 - [ ] **Real mobile-device/DevTools verification** — not attempted in

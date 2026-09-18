@@ -1,38 +1,52 @@
 /* ============================================================
-   BUILD-D001 — FORGE BRAND & EXPERIENCE SYSTEM v1.0 (Part 2)
-   Institutional design tokens: the canonical Forge palette and
-   typography. This is a STANDARD, not a one-off.
+   ELECTIONCANON DESIGN TOKENS (formerly BUILD-D001, Part 2)
+   Institutional design tokens: the canonical ElectionCanon palette
+   and typography. This is a STANDARD, not a one-off. The file/class
+   names below ("forge-*") are inherited internal identifiers from
+   this project's original monorepo extraction — they are never
+   rendered or referenced anywhere in ElectionCanon's public copy,
+   UI text, or documentation. See docs/DESIGN_SYSTEM.md.
 
-   Apply BUILD-D001 to any surface by adding the `.forge-brand`
+   Apply this system to any surface by adding the `.forge-brand`
    class: it inherits the palette, the Poppins type system, and maps
-   the existing Forge Geometry accent variables to the brand
-   palette so the geo-* primitives render in institutional colour
-   WITHOUT being rewritten.
+   the existing Geometry accent variables to the brand palette so
+   the geo-* primitives render in institutional colour WITHOUT being
+   rewritten.
 
-   Additive by design — existing components keep their current
-   tokens until an app-wide migration is authorised. No cyan, no
-   neon blue, no cyberpunk gradients are defined here.
+   BRAND ACCENTS — exactly two: teal (primary/active/confirmed) and
+   pink (secondary/contextual emphasis). No blue, no purple gradient,
+   no new hue introduced beyond what was already established here.
+
+   --forge-amber is NOT a brand accent. It is kept only for its
+   existing, pre-established functional role as a warning/attention
+   colour — most importantly, the demonstration-data label that
+   marks Election Day's simulated results as SIMULATION, never as a
+   real result (see shared.jsx's DemoTag). Do not use amber for new
+   brand/marketing surfaces; do not remove it from existing
+   simulation-labelling or pending-action UI, since that would
+   quietly weaken an honesty-critical visual signal for a cosmetic
+   reason. See docs/DESIGN_SYSTEM.md for the full rationale.
    ============================================================ */
 
 @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@700;800;900&display=swap');
 
 :root {
-  /* --- Palette (BUILD-D001 Part 2) -------------------------------------- */
-  --forge-black:  #0D0D0F;  /* 60% dominant  — primary background: depth, strength */
-  --forge-ivory:  #F5F1E9;  /* 25% support   — primary foreground: clarity, knowledge */
-  --forge-teal:   #0A7F73;  /* 10% accent    — technology, growth, connection */
-  --forge-amber:  #F5A623;  /*  3% accent    — energy, progress, achievement */
-  --forge-pink:   #FF2E63;  /*  2% highlight — momentum, bold initiative */
+  /* --- Palette ------------------------------------------------------------ */
+  --forge-black:  #0D0D0F;  /* dominant background — depth, strength */
+  --forge-ivory:  #F5F1E9;  /* primary foreground — clarity, knowledge */
+  --forge-teal:   #0A7F73;  /* brand accent (primary)   — active, confirmed, primary action */
+  --forge-pink:   #FF2E63;  /* brand accent (secondary) — contextual emphasis, geography/metadata */
+  --forge-amber:  #F5A623;  /* functional only — warning / pending / simulation labelling, not brand */
 
   /* --- Foreground steps (derived from ivory only — never new hues) ------ */
   --forge-ivory-70: rgba(245, 241, 233, 0.70);
   --forge-ivory-55: rgba(245, 241, 233, 0.55);
   --forge-ivory-12: rgba(245, 241, 233, 0.12);
 
-  /* --- Typography (BUILD-D001) ------------------------------------------ */
-  /* Sora retired — Poppins is the single Forge face, Black (900) for headlines. */
+  /* --- Typography ---------------------------------------------------------- */
+  /* Poppins is the single face, Black (900) for headlines, sentence case. */
   --forge-brand-font: 'Poppins', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  /* Display / headline face — Poppins Black, set lowercase at call sites. */
+  /* Display / headline face — Poppins Black, set sentence case at call sites. */
   --forge-display-font: 'Poppins', var(--forge-brand-font);
 }
 
