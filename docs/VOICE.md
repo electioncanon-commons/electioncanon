@@ -58,12 +58,11 @@ response.
 
 ## No secret in the browser
 
-Exactly like `src/os/studio/provider.js` (the text-AI provider) and
-`supabase/functions/forge-ai/`: whatever voice-vendor API key eventually
-exists lives only in the Edge Function's environment
-(`ELECTION_VOICE_PROVIDER_KEY`, matching the `FORGE_AI_PROVIDER_KEY`
-naming precedent) and is never shipped to the browser bundle. The
-provider is selected by environment variable
+Whatever voice-vendor API key eventually exists lives only in the Edge
+Function's environment (`ELECTION_VOICE_PROVIDER_KEY`) and is never
+shipped to the browser bundle — the same rule every provider credential
+in this repository follows, with no exception. The provider is selected
+by environment variable
 (`ELECTION_VOICE_PROVIDER`), never by anything the client sends — the
 same discipline that keeps a caller from choosing which vendor's key
 gets used.
