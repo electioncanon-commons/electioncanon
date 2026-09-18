@@ -103,8 +103,10 @@ input channel.
 
 To enable Google Cloud Speech-to-Text in your own deployment, set three
 Edge Function environment variables (`supabase secrets set ...`, or your
-platform's equivalent) — never in `.env`/the browser bundle, exactly like
-`forge-ai`'s `FORGE_AI_PROVIDER_KEY`:
+platform's equivalent) — never in `.env`/the browser bundle. This is
+standard Supabase Edge Function secret-handling practice, and the same
+pattern this repository follows everywhere else a provider credential
+exists:
 
 - `ELECTION_VOICE_PROVIDER=google_stt`
 - `ELECTION_VOICE_PROVIDER_KEY` — a valid OAuth2 access token for a
@@ -128,7 +130,7 @@ configuration, and never a fallback to a different, unrequested provider.
 Adding a second/different provider means writing a new `PROVIDER_PROFILES`
 entry with every field read from that vendor's own official reference (not
 remembered or guessed), following the `google_stt` entry as the template —
-see `docs/electioncanon/CONTRIBUTING.md`.
+see [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 ## Security notes
 
@@ -139,21 +141,31 @@ see `docs/electioncanon/CONTRIBUTING.md`.
   `validateTtsRequest`) enforce size and MIME-type limits before any
   provider is even consulted, so a malformed or oversized request is
   refused at the boundary regardless of vendor.
-- **Platform-level authentication is unchanged from `forge-ai`, at the
-  source level.** Neither `election-voice/index.ts` nor `forge-ai/
-  index.ts` contains any hand-written JWT verification code, and this
-  repository defines no `supabase/config.toml` to disable Supabase's
-  per-function default (`verify_jwt = true`) for either function —
-  confirmed by reading both files and the repository tree directly, not
-  assumed. Once deployed, a request with no valid Supabase-issued
-  Authorization bearer token is rejected by the platform before either
-  function body ever runs.
-- **Live-deployment status, checked directly (Alpha 1.3):** `forge-ai` is
-  deployed to this project's Supabase instance and was confirmed live to
-  return `401 UNAUTHORIZED_NO_AUTH_HEADER` for a request with no
-  Authorization header. `election-voice` returned `404 NOT_FOUND` under
-  the same check — it has never been deployed to this project
-  (`supabase functions deploy election-voice` has not been run here). The
+- **Platform-level authentication does not depend on any hand-written
+  code in this repository.** `election-voice/index.ts` contains no
+  hand-written JWT verification code, and this repository defines no
+  `supabase/config.toml` anywhere in its tree to disable Supabase's
+  per-function default (`verify_jwt = true`) — confirmed by reading the
+  file and the repository tree directly, not assumed. Once deployed, a
+  request with no valid Supabase-issued Authorization bearer token is
+  rejected by the platform before the function body ever runs. This is
+  entirely a property of ElectionCanon's own code and Supabase's
+  platform default — it requires no other infrastructure to be true.
+- **Live-deployment status, checked directly (Alpha 1.3):**
+  `election-voice` returned `404 NOT_FOUND` when checked against this
+  project's Supabase instance — it has never been deployed here
+  (`supabase functions deploy election-voice` has not been run). The
   source-level guarantee above still holds and will apply automatically
   once it is deployed, but this is stated as what it is: a source
-  guarantee, not yet a live-observed one for this specific function.
+  guarantee, not yet a live-observed one for `election-voice` itself.
+  During Alpha development, the same unmodified Supabase default was
+  separately observed live-in-practice — a real
+  `401 UNAUTHORIZED_NO_AUTH_HEADER` response to an unauthenticated
+  request — against a different Edge Function that happened to be
+  reachable in the same deployment environment at the time. That
+  function is **external infrastructure ElectionCanon does not own,
+  control, or currently depend on**; it was cited only as corroborating
+  evidence that Supabase's default genuinely rejects unauthenticated
+  requests in practice, not merely in documentation. It is not a
+  dependency this product carries forward, and no ElectionCanon
+  deployment requires it to exist.

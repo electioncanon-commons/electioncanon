@@ -95,14 +95,14 @@ security-relevant code.
   `is_active_campaign_member()`, which itself requires `auth.uid()` to
   resolve to a real session.
 - **A malicious or buggy language model output**, reached through
-  `forge-ai`/`election-voice`'s live-escalation path or a future model
-  integration. Treated as untrusted input, never as an instruction: model
-  output can only ever supply candidate TEXT for a claim already grounded
-  in the real Canon fold, or a candidate write draft that still requires
-  every one of the SAME validations a human-typed request goes through
-  (see `docs/BUSINESS-AI-DOMAIN-CONTRACT.md`'s grounding discussion). A
-  model can never invent a Canon fact, name a write field the human
-  didn't supply, or skip PREPARE → APPROVE.
+  `election-voice`'s live-escalation path or a future model integration.
+  Treated as untrusted input, never as an instruction: model output can
+  only ever supply candidate TEXT for a claim already grounded in the
+  real Canon fold, or a candidate write draft that still requires every
+  one of the SAME validations a human-typed request goes through (see
+  [ARCHITECTURE.md](./ARCHITECTURE.md#write-discipline-prepare--approve--execute)'s
+  write-discipline section). A model can never invent a Canon fact, name
+  a write field the human didn't supply, or skip PREPARE → APPROVE.
 - **A compromised or overly-broad browser credential.** The browser only
   ever holds a Supabase anon key; every privileged operation (service-role
   actions, if any are ever added) must live server-side. This is checked,
@@ -129,8 +129,11 @@ See `VOICE.md`'s "How voice providers are configured" and "Security
 notes" sections — covers where the credential lives (server-side only,
 Edge Function environment, never `.env`/the browser bundle), what
 `resolveProfile()` in `contract.mjs` checks before any vendor call is
-attempted, and the confirmation that `election-voice` is gated by the
-same platform-level JWT verification `forge-ai` already relies on.
+attempted, and the confirmation that `election-voice` is gated by
+Supabase's unmodified, platform-level `verify_jwt` default — the same
+default every Edge Function in this repository relies on, with no
+`supabase/config.toml` anywhere in the tree opting any function out of
+it.
 
 ## Git history
 
