@@ -105,14 +105,34 @@ console.log("\n5 — DIRECT NAVIGATION / NO CLIENT-SIDE SCOPE TRUST");
 
 console.log("\n6 — NO SCHEMA/MIGRATION/RLS CHANGE FOR THIS FIX");
 {
-  let migrationsStatus = null, gitAvailable = true;
+  // LAUNCH DISTRIBUTION PASS (Alpha 1.7) — assertion 1 originally checked
+  // that `git status --porcelain -- supabase/migrations` was entirely
+  // empty, true only because no migration existed anywhere else in the
+  // working tree at the time this test was written. That does not survive
+  // time: a later, UNRELATED migration (e.g. 20260921000000_election_
+  // launch_distribution.sql, standalone launch_subscribers/launch_
+  // analytics_events tables with no foreign key into campaign_invitations
+  // or geography_polling_units) would trip it forever after. Re-scoped to
+  // this pass's own real invariant: no migration in the working tree
+  // touches campaign_invitations or geography_polling_units — the two
+  // tables this PU-agent-invitation authorization fix actually depends on.
+  let migrationFiles = [], gitAvailable = true;
   try {
-    migrationsStatus = execFileSync("git", ["status", "--porcelain", "--", "supabase/migrations"], {
+    migrationFiles = execFileSync("git", ["status", "--porcelain", "--", "supabase/migrations"], {
       cwd: new URL("..", import.meta.url), encoding: "utf8",
-    }).trim();
+    }).trim().split("\n").filter(Boolean).map((line) => line.trim().split(/\s+/).pop());
   } catch { gitAvailable = false; }
-  ok("1. supabase/migrations has no new or modified file — this was a pure frontend fix, the backend was already correct",
-     !gitAvailable || migrationsStatus === "");
+  // SQL comment lines (--...) are stripped before checking -- a migration
+  // is free to MENTION campaign_invitations/geography_polling_units in its
+  // own prose (e.g. citing them as an existing design precedent, as
+  // 20260921000000_election_launch_distribution.sql's header genuinely
+  // does) without that counting as touching their schema.
+  const stripSqlComments = (sql) => sql.split("\n").map((line) => line.replace(/--.*$/, "")).join("\n");
+  ok("1. no new/modified migration in the working tree touches campaign_invitations or geography_polling_units — this pass's own invariant, not 'zero migrations exist anywhere'",
+     !gitAvailable || migrationFiles.every((f) => {
+       const text = stripSqlComments(readFileSync(new URL(`../${f}`, import.meta.url), "utf8"));
+       return !/campaign_invitations/.test(text) && !/geography_polling_units/.test(text);
+     }));
 }
 
 console.log(`\n${pass}/${pass + fail} assertions passed${fail ? ` — ${fail} FAILED` : ""}\n`);

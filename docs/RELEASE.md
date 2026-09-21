@@ -92,6 +92,85 @@ the next time this question comes up — re-verify anything time-sensitive
       scope for this extraction pass (this repository directive
       explicitly excludes domain cutover — see cutover checklist below).
 
+## Launch Distribution System (Alpha 1.7) — deployment checklist
+
+Adds `/launch` + `/launch/ad01`/`ad02`/`ad03` + `/launch/confirm` +
+`/launch/unsubscribe`, a double-opt-in email signup system, and the
+`launch_subscribers`/`launch_analytics_events` tables.
+
+- [x] **Migration applied** — `20260921000000_election_launch_
+      distribution.sql` (verified against the live project this pass).
+- [x] **Edge Functions deployed** — `launch-subscribe`, `launch-send-
+      campaign-email`, `launch-confirm`, `launch-unsubscribe` (see the
+      Brevo section below for exact versions/flags).
+- [ ] **Add `/launch/confirm` and `/launch/unsubscribe` to the Supabase
+      Auth redirect allow-list** — same dashboard step (Authentication →
+      URL Configuration) already documented above for the domain
+      cutover, extended to these two new public routes.
+- [ ] **AD02/AD03 creative** — no film exists for either yet; both routes
+      and all three sequence emails honestly say "coming soon" /
+      "still in production". `SEQUENCE_CONTENT_READY` in `supabase/
+      functions/launch-send-campaign-email/contract.mjs` server-side
+      blocks sending sequence 2/3 until this is flipped by hand once real
+      creative exists. Swapping in real creative later needs no
+      structural change — see `src/pages/launch/LaunchAd02.jsx` and
+      `LaunchAd03.jsx`.
+
+## Brevo production email integration (Alpha 1.7) — deployment checklist
+
+Migrates ONLY the launch-distribution delivery path (`launch-subscribe`,
+`launch-send-campaign-email`, and the new `launch-confirm`/`launch-
+unsubscribe` wrappers) from Resend to Brevo, the domain-authenticated
+production provider. **`election-invitation-email` and `RESEND_API_KEY`
+are completely untouched** — verified by this pass's own test suite
+(`test/election-launch-subscription.consumer.mjs`, section J) via a
+source scan proving that function still reads `RESEND_API_KEY` and
+posts to `api.resend.com`, unchanged.
+
+- [x] **Migration applied** — `20260922000000_election_launch_brevo_
+      rate_limit.sql` (adds `launch_subscribe_attempts`, a service-role-
+      only signup rate-limit ledger; no existing table touched).
+- [x] **Edge Functions deployed**: `launch-subscribe` and `launch-send-
+      campaign-email` redeployed with their Brevo-migrated code;
+      `launch-confirm` and `launch-unsubscribe` deployed new. All four
+      default (`verify_jwt: true`) EXCEPT `launch-send-campaign-email`,
+      deployed with `--no-verify-jwt` since it authenticates via its own
+      `LAUNCH_ADMIN_SECRET` bearer header rather than a Supabase session
+      JWT.
+- [x] **`BREVO_SENDER_EMAIL=admin@electioncanon.org` /
+      `BREVO_SENDER_NAME=ElectionCanon` set** as Supabase Edge Function
+      secrets — not secret values (given in plain text in the request),
+      safe to set directly.
+- [ ] **MANUAL ACTION — set `BREVO_API_KEY`.** This is a real secret;
+      it was never pasted into this session and this session never asked
+      for it. Set it yourself: **Supabase Dashboard → your project →
+      Project Settings → Edge Functions → Secrets → Add secret**
+      (name `BREVO_API_KEY`, value your Brevo production API key), or
+      run `supabase secrets set BREVO_API_KEY=<your key> --project-ref lncwkjlgakonokwboxdp`
+      from your own terminal. Until this is set, `launch-subscribe`/
+      `launch-send-campaign-email`/`launch-confirm` all degrade honestly
+      (`PROVIDER_NOT_CONFIGURED`/no Brevo sync) rather than erroring.
+- [ ] **MANUAL ACTION — create the Brevo list and set `BREVO_LIST_ID`.**
+      Brevo's list-creation API requires a `folderId` and list names
+      aren't unique, so this was deliberately not automated (see
+      `launch-confirm/contract.mjs`'s own header) — same "don't fabricate
+      an unverifiable third-party call" discipline as AD02/AD03 above.
+      In the Brevo dashboard: Contacts → Lists → Create a list named
+      exactly `ElectionCanon Launch`, note its numeric id, then set it as
+      the (non-secret) `BREVO_LIST_ID` Edge Function secret. Until set,
+      confirmed subscribers still sync to Brevo as contacts — they just
+      aren't added to a list yet.
+- [ ] **`LAUNCH_ADMIN_SECRET` is still not set** (carried over,
+      unrelated to Brevo specifically — confirmed via `supabase secrets
+      list` during this pass). `launch-send-campaign-email` is live and
+      correctly refuses every call with `UNAUTHENTICATED` until this is
+      set by the owner (same manual step documented in the Launch
+      Distribution System section above).
+- [ ] **Route naming note**: the integration request referred to the
+      route as `/launch/ad1`; the real, tested, live route from the
+      original Launch Distribution build is `/launch/ad01`. Email 1's
+      CTA uses the real, existing route — nothing was renamed.
+
 ## Rollback instructions
 
 This repository has two commits total, both part of the initial

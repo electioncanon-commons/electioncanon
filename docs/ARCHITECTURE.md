@@ -224,6 +224,27 @@ events, it does not declare criminality.
 - `src/domains/election/{chat,design}/` — the two directly-RLS-protected
   (non-event-sourced) subsystems.
 - `src/pages/Election.jsx` + `src/pages/election/*.jsx` — the web UI.
+- `src/domains/launch/` + `src/pages/launch/*.jsx` (Alpha 1.7) — the
+  public `/launch` distribution system: double-opt-in email signup,
+  referral/UTM attribution, and launch analytics. Deliberately NOT
+  under `src/domains/election/` — this is marketing telemetry about the
+  public site, never election Canon data, and touches none of
+  `election_events`, `campaigns`, or any tenant-scoped table. Its two
+  tables (`launch_subscribers`, `launch_analytics_events`,
+  `20260921000000_election_launch_distribution.sql`) are a third and
+  fourth example of "operational state, not event-sourced" alongside
+  chat and Campaign Studio design drafts above — a subscription is a
+  mutable administrative record, and an analytics event, while
+  append-only like `election_events`, carries no tenant/campaign scope
+  and is not a Canon fact. Email delivery for this path is Brevo (via
+  `launch-subscribe`/`launch-send-campaign-email`/`launch-confirm`/
+  `launch-unsubscribe`, `BREVO_API_KEY`) — a deliberately separate
+  provider from `election-invitation-email`'s own Resend/
+  `RESEND_API_KEY`, migrated for this one delivery path only (see
+  `docs/RELEASE.md`'s Brevo section). A fifth table,
+  `launch_subscribe_attempts` (`20260922000000_election_launch_brevo_
+  rate_limit.sql`), rate-limits the public signup endpoint — service-
+  role-only, no RLS policy of any kind, not PII.
 
 ## What this document is not
 

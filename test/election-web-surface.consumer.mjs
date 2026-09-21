@@ -275,13 +275,22 @@ console.log("\nO — ROUTING: additive, existing routes untouched");
   // separately from however many "-preview" routes exist — the invariant
   // this test protects (nothing hidden inside a generic loop, no route
   // added without a name and a reason) stays exactly as true as before.
+  //
+  // LAUNCH DISTRIBUTION PASS (Alpha 1.7) — six /launch* routes (the hub,
+  // /launch/ad01, /launch/ad02, /launch/ad03, /launch/confirm, /launch/
+  // unsubscribe) are added the same additive, named way every prior route
+  // was. These are real, linked product surfaces (not preview routes) so
+  // they are NOT "-preview"-suffixed and are counted as PRODUCT routes,
+  // growing that count from 5 to 11 — the "nothing generated from a loop"
+  // invariant stays exactly as true as before.
   const routePaths = [...app.matchAll(/<Route path="([^"]+)"/g)].map((m) => m[1]);
   const productRoutes = routePaths.filter((p) => !p.replace(/^\//, "").endsWith("-preview"));
   const previewRoutes = routePaths.filter((p) => p.replace(/^\//, "").endsWith("-preview"));
-  ok("O2. the route table has exactly five explicit PRODUCT routes (/, /election, /access, /invite/:token, /reset-password) — nothing generated from a loop, any other routes are self-identifying '-preview' routes",
+  const LAUNCH_ROUTES = ["/launch", "/launch/ad01", "/launch/ad02", "/launch/ad03", "/launch/confirm", "/launch/unsubscribe"];
+  ok("O2. the route table has exactly eleven explicit PRODUCT routes (the original 5, plus the 6 /launch* routes) — nothing generated from a loop, any other routes are self-identifying '-preview' routes",
      !/\.map\(/.test(app) &&
-     productRoutes.length === 5 &&
-     ["/", "/election", "/access", "/invite/:token", "/reset-password"].every((p) => productRoutes.includes(p)) &&
+     productRoutes.length === 11 &&
+     ["/", "/election", "/access", "/invite/:token", "/reset-password", ...LAUNCH_ROUTES].every((p) => productRoutes.includes(p)) &&
      previewRoutes.length + productRoutes.length === routePaths.length);
   ok("O3. /access is present, registered the same explicit way as /election",
      /<Route path="\/access"\s+element=\{<Access \/>\}\s*\/>/.test(app));

@@ -201,14 +201,25 @@ console.log("\n7 — MOBILIZE: D.3 ARCHITECTURE BOUNDARY UNTOUCHED BY ANY GATE A
 
 console.log("\n8 — NO SCHEMA/MIGRATION/RLS CHANGE");
 {
-  let migrationsStatus = null, gitAvailable = true;
+  // LAUNCH DISTRIBUTION PASS (Alpha 1.7) — assertion 1 originally checked
+  // that `git status --porcelain -- supabase/migrations` was entirely
+  // empty, true only because no migration existed anywhere else in the
+  // working tree at the time this test was written. That does not survive
+  // time: a later, UNRELATED migration (e.g. 20260921000000_election_
+  // launch_distribution.sql, standalone launch_subscribers/launch_
+  // analytics_events tables with no foreign key into anything Gate A
+  // reads) would trip it forever after. Re-scoped to what Gate A's own
+  // invariant actually is: no migration in the working tree touches
+  // responsibility_slots — the one table this pass's new coverage
+  // primitives (getPollingUnitCoverage, section 6 above) read from.
+  let migrationFiles = [], gitAvailable = true;
   try {
-    migrationsStatus = execFileSync("git", ["status", "--porcelain", "--", "supabase/migrations"], {
+    migrationFiles = execFileSync("git", ["status", "--porcelain", "--", "supabase/migrations"], {
       cwd: new URL("..", import.meta.url), encoding: "utf8",
-    }).trim();
+    }).trim().split("\n").filter(Boolean).map((line) => line.trim().split(/\s+/).pop());
   } catch { gitAvailable = false; }
-  ok("1. supabase/migrations has no new or modified file — Gate A touched zero schema/RLS",
-     !gitAvailable || migrationsStatus === "");
+  ok("1. no new/modified migration in the working tree touches responsibility_slots — this pass's own invariant, not 'zero migrations exist anywhere'",
+     !gitAvailable || migrationFiles.every((f) => !/responsibility_slots/.test(readFileSync(new URL(`../${f}`, import.meta.url), "utf8"))));
 }
 
 console.log(`\n${pass}/${pass + fail} assertions passed${fail ? ` — ${fail} FAILED` : ""}\n`);
