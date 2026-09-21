@@ -1,13 +1,18 @@
 // ============================================================
 // LAUNCH DISTRIBUTION — /launch/ad01  (Alpha 1.7)
 //
-// AD01Chaos is IMPORTED AND RENDERED ONLY -- never edited. See
-// src/pages/AD01Chaos.jsx (the real, live component App.jsx's own
-// /ad01-preview route already uses) for the creative itself.
+// ASSET RECONCILIATION (2026-09-22): the prototype phone-mockup
+// component (AD01Chaos.jsx, a CSS-animated fake chat UI) has been
+// replaced here with the real, final release video
+// (public/launch/ad01-final.mp4, byte-identical to the AD01_FINAL.mp4
+// provided as the canonical AD01 asset) -- same script, same "CHAOTIC
+// ELECTION OPERATIONS? NO MORE." beat, same electioncanon.org end card,
+// now professionally shot rather than simulated. AD01Chaos.jsx itself is
+// UNTOUCHED and still exists (still used by the unrelated /ad01-preview
+// route) -- this file simply no longer renders it.
 // ============================================================
 
 import { useNavigate } from "react-router-dom";
-import AD01Chaos from "../AD01Chaos.jsx";
 import { LaunchSignupForm, LaunchEyebrow, useLaunchTelemetry, useDocumentTitle,
   BLACK, IVORY, TEAL, MUTED, BORDER, UI, DISPLAY } from "./shared.jsx";
 
@@ -18,7 +23,15 @@ export default function LaunchAd01() {
 
   return (
     <div style={{ background: BLACK }}>
-      <AD01Chaos />
+      <div style={{ display: "flex", justifyContent: "center", padding: "32px 20px 0" }}>
+        <video
+          src="/launch/ad01-final.mp4"
+          autoPlay muted loop={false} playsInline controls
+          style={{ width: "100%", maxWidth: 420, aspectRatio: "9 / 16", background: "#000", border: `1px solid ${BORDER}` }}
+        >
+          Your browser doesn't support video playback. <a href="/launch/ad01-final.mp4" style={{ color: TEAL }}>Download AD01</a> instead.
+        </video>
+      </div>
       <div style={{ padding: "48px 20px 64px", maxWidth: 640, margin: "0 auto" }}>
         <LaunchEyebrow />
         <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", color: TEAL, marginBottom: 10 }}>
