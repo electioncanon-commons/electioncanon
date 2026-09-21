@@ -141,35 +141,57 @@ posts to `api.resend.com`, unchanged.
       `BREVO_SENDER_NAME=ElectionCanon` set** as Supabase Edge Function
       secrets — not secret values (given in plain text in the request),
       safe to set directly.
-- [ ] **MANUAL ACTION — set `BREVO_API_KEY`.** This is a real secret;
-      it was never pasted into this session and this session never asked
-      for it. Set it yourself: **Supabase Dashboard → your project →
-      Project Settings → Edge Functions → Secrets → Add secret**
-      (name `BREVO_API_KEY`, value your Brevo production API key), or
-      run `supabase secrets set BREVO_API_KEY=<your key> --project-ref lncwkjlgakonokwboxdp`
-      from your own terminal. Until this is set, `launch-subscribe`/
-      `launch-send-campaign-email`/`launch-confirm` all degrade honestly
-      (`PROVIDER_NOT_CONFIGURED`/no Brevo sync) rather than erroring.
-- [ ] **MANUAL ACTION — create the Brevo list and set `BREVO_LIST_ID`.**
-      Brevo's list-creation API requires a `folderId` and list names
-      aren't unique, so this was deliberately not automated (see
-      `launch-confirm/contract.mjs`'s own header) — same "don't fabricate
-      an unverifiable third-party call" discipline as AD02/AD03 above.
-      In the Brevo dashboard: Contacts → Lists → Create a list named
-      exactly `ElectionCanon Launch`, note its numeric id, then set it as
-      the (non-secret) `BREVO_LIST_ID` Edge Function secret. Until set,
-      confirmed subscribers still sync to Brevo as contacts — they just
-      aren't added to a list yet.
-- [ ] **`LAUNCH_ADMIN_SECRET` is still not set** (carried over,
-      unrelated to Brevo specifically — confirmed via `supabase secrets
-      list` during this pass). `launch-send-campaign-email` is live and
-      correctly refuses every call with `UNAUTHENTICATED` until this is
-      set by the owner (same manual step documented in the Launch
-      Distribution System section above).
+- [x] **`BREVO_API_KEY` / `BREVO_LIST_ID=3` / `LAUNCH_ADMIN_SECRET` are
+      set** — confirmed present (names only, never values) via `supabase
+      secrets list` during the final verification pass.
+- [ ] **MANUAL ACTION — `BREVO_API_KEY`'s current value does not
+      authenticate with Brevo.** Live-verified against Brevo's own
+      `GET /v3/account` (read-only, no email sent, no contact touched,
+      called from a temporary diagnostic Edge Function deployed and
+      deleted solely for this check): Brevo returns `401 { code:
+      "unauthorized", message: "Key not found" }`. A real subscribe →
+      confirm → unsubscribe round-trip against production confirms the
+      same thing end-to-end: `launch-subscribe` accepted the signup
+      (`providerMessageId: null` — no message actually queued),
+      `launch-confirm` reported `brevoSynced: false`, `launch-unsubscribe`
+      reported `brevoSynced: false`. The Supabase-side write in all three
+      cases succeeded correctly (this is a Brevo authentication problem
+      only, not a bug in this integration) — the test subscriber row was
+      deleted afterward. **Fix**: in the Brevo dashboard, generate a
+      fresh API key (SMTP & API → API Keys) and re-set it —
+      `supabase secrets set BREVO_API_KEY=<new key> --project-ref lncwkjlgakonokwboxdp`
+      or via Project Settings → Edge Functions → Secrets. Check for a
+      trailing newline/whitespace or an accidentally-copied v2/legacy key
+      if a fresh key still fails.
+- [ ] **Brevo list membership (`BREVO_LIST_ID=3`, "ElectionCanon
+      Launch") could not be verified** — blocked by the same invalid-key
+      issue above; re-check once `BREVO_API_KEY` is fixed.
 - [ ] **Route naming note**: the integration request referred to the
       route as `/launch/ad1`; the real, tested, live route from the
       original Launch Distribution build is `/launch/ad01`. Email 1's
       CTA uses the real, existing route — nothing was renamed.
+
+## Production build fix (2026-09-21) — App.jsx referenced uncommitted files
+
+The commit that introduced the Launch Distribution System also carried
+forward pre-existing, never-committed local changes to `App.jsx` (imports
+of `src/e03/`–`src/e09/` and `src/pages/AD01Chaos.jsx`) that predated all
+work described in this document — visible as "M src/App.jsx" / untracked
+`src/e0N/` and `AD01Chaos.jsx` files from the very start of that session.
+Pushing it broke the Vercel production build (`Could not resolve
+"./e03/E03MotionFinal.jsx"`, confirmed via `vercel inspect --logs`).
+
+Fixed in the very next commit: `src/pages/AD01Chaos.jsx` is committed
+unmodified (a real, direct dependency of `/launch/ad01`, which renders
+that exact component — `AD01Chaos.css` was already committed). The
+`src/e03/`–`src/e09/` imports and their `/eNN-preview` routes were
+removed from `App.jsx` rather than committed — they have no connection
+to anything described in this document, and their source files remain
+on disk, untouched, for whenever that separate work is ready to be
+committed on its own terms. Verified: `vercel inspect` on the resulting
+deployment shows `status: Ready`, `target: production`, aliased to
+`electioncanon.org`; all six `/launch*` routes live-checked in a real
+browser post-deploy.
 
 ## Rollback instructions
 
