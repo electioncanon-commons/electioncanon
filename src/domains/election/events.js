@@ -290,6 +290,35 @@ export const REQUIRED_ACTOR_KIND = Object.freeze({
   // live readiness engine legitimately operate a territory.
 });
 
+/**
+ * STAFF-RESTRICTED EVENT TYPES (pilot safety pass) — the MINIMUM set of
+ * structural/high-authority event types a 'staff'-tier campaign_members
+ * row (campaign_member_role) may never write, regardless of actor_kind.
+ * This is NOT the full EVENT_CAPABILITY matrix wired up — EVENT_CAPABILITY
+ * above remains exactly as declared-but-not-wired as it always has been.
+ * This is a narrow, explicit denylist sized for a 25-person preparation-
+ * phase operator pilot: 'owner' and 'manager' are unrestricted here,
+ * unchanged from current behavior.
+ *
+ * WIRED IN TWO PLACES, DELIBERATELY: electionWebAdapter.js's
+ * roleAuthorised() (this file has no client, so it cannot read a role
+ * itself — same reason REQUIRED_ACTOR_KIND above is data, not
+ * enforcement, here), AND the election_events INSERT RLS policy
+ * (election_event_writable_by_role(), supabase/migrations/20260923000000_
+ * election_membership_revocation_and_write_rbac.sql) — the database is
+ * the authoritative enforcement point; the application-layer check exists
+ * only to fail earlier with a clearer reason. Keep this exact list in
+ * sync with that SQL array by hand; nothing generates one from the other.
+ */
+export const STAFF_RESTRICTED_EVENT_TYPES = Object.freeze([
+  ELECTION_EVENT_TYPES.CANDIDATE.REGISTERED,
+  ELECTION_EVENT_TYPES.CAMPAIGN.WARD_ASSIGNED,
+  ELECTION_EVENT_TYPES.TERRITORY.SET,
+  ELECTION_EVENT_TYPES.RESPONSIBILITY.ASSIGNED,
+  ELECTION_EVENT_TYPES.RESPONSIBILITY.REASSIGNED,
+  ELECTION_EVENT_TYPES.RESPONSIBILITY.STATUS_CHANGED,
+]);
+
 function compact(fields) {
   const out = {};
   for (const [k, v] of Object.entries(fields)) {
@@ -770,7 +799,7 @@ export function responsibilityStatusEvent({ responsibility, campaign, status, tr
 }
 
 export default {
-  ELECTION_EVENT_TYPES, MISSION_POLICY, EVENT_CAPABILITY, REQUIRED_ACTOR_KIND,
+  ELECTION_EVENT_TYPES, MISSION_POLICY, EVENT_CAPABILITY, REQUIRED_ACTOR_KIND, STAFF_RESTRICTED_EVENT_TYPES,
   validateElectionEvent, assertElectionEvent,
   candidateEvent, wardAssignedEvent, wardStatusEvent, observerAssignedEvent,
   personAddedEvent, assignmentCreatedEvent, assignmentStatusEvent, taskCreatedEvent, taskStatusEvent,

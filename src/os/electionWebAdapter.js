@@ -33,7 +33,7 @@
 import { activateElectionCampaign, getElectionContext, getCampaignActorKind, loadElectionLog } from "./electionContext.js";
 import { resolveElectionScope, isElectionScoped } from "./electionScope.js";
 import { proposeElectionWrite, executeElectionWrite } from "../domains/election/studio/write.js";
-import { REQUIRED_ACTOR_KIND } from "../domains/election/events.js";
+import { REQUIRED_ACTOR_KIND, STAFF_RESTRICTED_EVENT_TYPES } from "../domains/election/events.js";
 import * as mobilizationWrite from "../domains/election/mobilization/write.js";
 import * as electionDayWrite from "../domains/election/electionDay/write.js";
 import * as geographyWrite from "../domains/election/geography/write.js";
@@ -98,6 +98,16 @@ export const WRITE_CHANNEL = Object.freeze({
   // requires. A real, named refusal reason, not a re-use of "no
   // membership" for a genuinely different fact.
   UNAUTHORIZED_ACTOR_KIND: "unauthorized-actor-kind",
+  // PILOT SAFETY PASS — distinct from both refusals above: the caller IS
+  // a verified, ACTIVE member of a REAL campaign, and that campaign's
+  // actor_kind DOES authorise this draft type, but the caller's own
+  // campaign_member_role ('staff') does not. See
+  // STAFF_RESTRICTED_EVENT_TYPES in events.js for the exact, narrow list
+  // this refusal guards — the same list the election_events INSERT RLS
+  // policy independently enforces (supabase/migrations/20260923000000_
+  // election_membership_revocation_and_write_rbac.sql) as the
+  // authoritative backstop this check exists only to pre-empt.
+  UNAUTHORIZED_ROLE: "unauthorized-role",
 });
 
 /**
@@ -113,6 +123,19 @@ export const WRITE_CHANNEL = Object.freeze({
 function actorKindAuthorised(draftType, actorKind) {
   const required = REQUIRED_ACTOR_KIND[draftType];
   return !required || required === actorKind;
+}
+
+/**
+ * PILOT SAFETY PASS — the application-layer mirror of the election_events
+ * INSERT RLS policy's own election_event_writable_by_role() check (see
+ * that migration). This function exists only to refuse earlier, with a
+ * clearer reason, than a bare RLS-denied insert would — the database
+ * policy is the authoritative enforcement, not this. `scope.role` is
+ * already returned by resolveElectionScope() (electionScope.js) for
+ * every SCOPED outcome, so no extra query is needed to check it here.
+ */
+function roleAuthorised(draftType, role) {
+  return !(role === "staff" && STAFF_RESTRICTED_EVENT_TYPES.includes(draftType));
 }
 
 /**
@@ -157,6 +180,10 @@ export async function prepareElectionWrite({ client, requestedCampaign, message 
       reason: `this campaign (${ctx.actorKind ?? "unknown actor kind"}) is not authorised to record a ` +
               `"${proposed.draft.draft.type}" event` };
   }
+  if (!roleAuthorised(proposed.draft.draft.type, scope.role)) {
+    return { status: WRITE_CHANNEL.UNAUTHORIZED_ROLE, draft: null,
+      reason: `your role in this campaign is not authorised to record a "${proposed.draft.draft.type}" event` };
+  }
   return proposed;
 }
 
@@ -192,6 +219,9 @@ export async function approveElectionWrite({ client, requestedCampaign, draft, c
   const actorKind = await getCampaignActorKind({ client, campaignId: scope.campaignId });
   if (!actorKindAuthorised(draft?.type, actorKind)) {
     return { success: false, alreadyRecorded: false, error: WRITE_CHANNEL.UNAUTHORIZED_ACTOR_KIND };
+  }
+  if (!roleAuthorised(draft?.type, scope.role)) {
+    return { success: false, alreadyRecorded: false, error: WRITE_CHANNEL.UNAUTHORIZED_ROLE };
   }
 
   return executeElectionWrite({ draft, campaign: scope.campaignId, userId, client, confirmationId });
@@ -297,6 +327,10 @@ async function prepareStructuredWrite({ client, requestedCampaign, fields, propo
       reason: `this campaign (${ctx.actorKind ?? "unknown actor kind"}) is not authorised to record a ` +
               `"${proposed.draft.draft.type}" event` };
   }
+  if (!roleAuthorised(proposed.draft.draft.type, scope.role)) {
+    return { status: WRITE_CHANNEL.UNAUTHORIZED_ROLE, draft: null,
+      reason: `your role in this campaign is not authorised to record a "${proposed.draft.draft.type}" event` };
+  }
   return proposed;
 }
 
@@ -312,6 +346,9 @@ async function approveStructuredWrite({ client, requestedCampaign, draft, confir
   const actorKind = await getCampaignActorKind({ client, campaignId: scope.campaignId });
   if (!actorKindAuthorised(draft?.type, actorKind)) {
     return { success: false, alreadyRecorded: false, error: WRITE_CHANNEL.UNAUTHORIZED_ACTOR_KIND };
+  }
+  if (!roleAuthorised(draft?.type, scope.role)) {
+    return { success: false, alreadyRecorded: false, error: WRITE_CHANNEL.UNAUTHORIZED_ROLE };
   }
 
   return executeFn({ draft, campaign: scope.campaignId, userId, client, confirmationId });
