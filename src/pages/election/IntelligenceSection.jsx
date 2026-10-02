@@ -12,18 +12,23 @@
 // translation.
 // ============================================================
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase.js";
 import { readElectionLog } from "../../os/electionWebAdapter.js";
-import { askForge, MODE } from "../../os/studio/ask.js";
-import { deterministicAdapter } from "../../domains/election/studio/infer.js";
-import { planElectionResponse } from "../../domains/election/studio/respond.js";
-import { ELECTION_VOCABULARY } from "../../domains/election/studio/vocabulary.js";
 import { TASK_STATUS } from "../../domains/election/mobilization/write.js";
 import { INCIDENT_STATUS, VERIFICATION_STATUS } from "../../domains/election/electionDay/write.js";
+import { ELECTION_EVENT_TYPES } from "../../domains/election/events.js";
+import { resolveEffectiveScope } from "../../domains/election/responsibility.js";
+import { getScopeGeographyName } from "../../domains/election/geography/read.js";
 import { computeAttention } from "./attention.js";
-import { capabilityFor, VOICE_STATUS } from "../../os/studio/languageCapability.js";
-import { Label, Panel, WriteActionPanel, friendlyError, UI, IVORY, MUTED, TEAL, AMBER, PINK, BORDER, BLACK, inputStyle } from "./shared.jsx";
+import { Label, Panel, WriteActionPanel, UI, IVORY, MUTED, TEAL, AMBER, PINK, BORDER } from "./shared.jsx";
+import { scopeElectionDayView } from "./ElectionDaySection.jsx";
+// UX REDESIGN SLICE 5 — AskPanel moved to AskAssistant.jsx so contextual
+// entry points on other pages can reuse the SAME implementation. This file
+// imports it back rather than keeping a second copy — one Ask engine, one
+// UI for it, two mount points (this tab, and every ContextualAsk trigger).
+import { AskPanel } from "./AskAssistant.jsx";
+import { useTranslation } from "./useTranslation.js";
 
 function AlertRow({ text, tone = AMBER }) {
   return (
@@ -36,69 +41,41 @@ function AlertRow({ text, tone = AMBER }) {
 
 const TONE_COLOR = { danger: PINK, warning: AMBER };
 
-function AskPanel({ view, log }) {
-  const [message, setMessage] = useState("");
-  const [answer, setAnswer] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(null);
-
-  const ask = useCallback(async () => {
-    if (!message.trim()) return;
-    setBusy(true); setError(null);
-    try {
-      const result = await askForge({
-        message, view, log, preferredLanguage: "en", mode: MODE.ASK,
-        adapter: deterministicAdapter, responder: planElectionResponse, vocabulary: ELECTION_VOCABULARY,
-      });
-      setAnswer(result);
-    } catch (e) {
-      setError(e?.message ?? "could not process that question");
+// ROLE_SCOPE_03 — the two feed-entry types ROLE_SCOPE_02 actually
+// demonstrated leaking to a scoped LGA Coordinator via this page's Activity
+// Trend: a RESPONSIBILITY.* event naming a geography outside their scope,
+// and a MOBILIZATION.PERSON_ADDED event for a field-roster person whose
+// current responsibility geography is outside their scope. Every other
+// feed entry type (territory set, election-day, free-text ward/task
+// activity, etc.) is left visible here — same "only scope what was
+// actually shown to leak, don't guess the rest" boundary applied to Work's
+// Wards/Assignments/Tasks tabs (see MobilizeSection.jsx's own comment).
+function scopeFeed(feed, log, view, scope) {
+  if (!scope || scope.isCampaignWide) return feed;
+  const byEventId = new Map((log ?? []).map((e) => [e.eventId, e]));
+  const geoForPerson = new Map(Object.values(view?.responsibilities ?? {}).map((r) => [r.person, r.geographyRef]));
+  const RESP = ELECTION_EVENT_TYPES.RESPONSIBILITY;
+  return feed.filter((entry) => {
+    const raw = byEventId.get(entry.eventId);
+    if (!raw) return true; // no raw event to check against — never hide on a lookup miss
+    if (entry.type === RESP.ASSIGNED || entry.type === RESP.STATUS_CHANGED || entry.type === RESP.REASSIGNED) {
+      const geo = raw.geographyRef;
+      return geo ? scope.scopeGeographyRefs?.has(geo) : true;
     }
-    setBusy(false);
-  }, [message, view, log]);
-
-  return (
-    <Panel accent={AMBER}>
-      <div style={{ fontFamily: UI, fontSize: 11.5, color: MUTED, marginBottom: 12, lineHeight: 1.6 }}>
-        Ask a question scoped ONLY to this campaign own Election Canon data — never another Forge
-        product. English only this Alpha; other languages are recognised and answered in English
-        with that noted, never a fabricated translation.
-      </div>
-      <div style={{ fontFamily: UI, fontSize: 11, color: TEAL, marginBottom: 10 }}>
-        Try: "What office am I contesting?" · "What is the status of Ward 3?" · "Who is responsible for Ward 3?" ·
-        "What should we do next?" · "Which polling units have no agent?" · "Show unresolved incidents" ·
-        "What evidence is waiting for verification?" · "Which result sheets have low OCR confidence?"
-      </div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
-        <input value={message} onChange={(e) => setMessage(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") ask(); }}
-          placeholder="Ask ElectionCanon…" aria-label="Ask ElectionCanon" style={{ ...inputStyle, marginBottom: 0, flex: 1 }} />
-        <button type="button" disabled title={
-          capabilityFor("en").voiceStt === VOICE_STATUS.AVAILABLE_PENDING_CONFIG
-            ? "Voice input is architected against a real, researched speech provider (Google Cloud Speech-to-Text — see docs/VOICE.md) but no vendor key is configured in this deployment yet."
-            : "No voice input provider was found for this language this pass — see docs/VOICE.md."
-        } style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase",
-            padding: "11px 14px", border: `1px solid ${BORDER}`, background: "transparent", color: MUTED, cursor: "not-allowed" }}>
-          Voice · soon
-        </button>
-        <button onClick={ask} disabled={busy || !message.trim()}
-          style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase",
-            padding: "11px 18px", border: "none", background: busy || !message.trim() ? BORDER : AMBER, color: BLACK,
-            cursor: busy || !message.trim() ? "not-allowed" : "pointer" }}>{busy ? "Asking…" : "Ask"}</button>
-      </div>
-      {answer && (
-        <div style={{ fontFamily: UI, fontSize: 13, color: IVORY, padding: "10px 0", borderTop: `1px solid ${BORDER}` }}>
-          {answer.answer}
-          {answer.fellBack && <div style={{ fontSize: 10.5, color: MUTED, marginTop: 6 }}>(answered in English — the requested language is not yet supported)</div>}
-        </div>
-      )}
-      {error && <div style={{ fontFamily: UI, fontSize: 12, color: PINK, marginTop: 10 }}>{friendlyError(error)}</div>}
-    </Panel>
-  );
+    if (entry.type === ELECTION_EVENT_TYPES.MOBILIZATION.PERSON_ADDED) {
+      const geo = geoForPerson.get(raw.person);
+      return geo ? scope.scopeGeographyRefs?.has(geo) : false; // unassigned roster person: same as Work's PeopleTab
+    }
+    return true;
+  });
 }
 
-export default function IntelligenceSection({ ctx, campaignId, refresh }) {
+export default function IntelligenceSection({ ctx, campaignId, userId, refresh, onSection }) {
+  const { t } = useTranslation();
   const [log, setLog] = useState([]);
+  const [scope, setScope] = useState(null);
+  const [scopeName, setScopeName] = useState(null);
+  const [scopeLevel, setScopeLevel] = useState(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -108,7 +85,22 @@ export default function IntelligenceSection({ ctx, campaignId, refresh }) {
     return () => { cancelled = true; };
   }, [campaignId]);
 
-  const view = ctx.view ?? {};
+  useEffect(() => {
+    let cancelled = false;
+    if (!userId) { setScope(null); setScopeName(null); setScopeLevel(null); return undefined; }
+    (async () => {
+      const s = await resolveEffectiveScope({ client: supabase, view: ctx.view, campaignId, userId });
+      if (cancelled) return;
+      setScope(s);
+      if (s.isCampaignWide || (s.scopeLevel !== "lga" && s.scopeLevel !== "ward")) { setScopeName(null); setScopeLevel(null); return; }
+      const { data: name } = await getScopeGeographyName({ client: supabase, level: s.scopeLevel, geographyRef: s.scopeGeographyRef });
+      if (!cancelled) { setScopeName(name); setScopeLevel(s.scopeLevel); }
+    })();
+    return () => { cancelled = true; };
+  }, [ctx.view, campaignId, userId]);
+
+  const baseView = ctx.view ?? {};
+  const view = scopeElectionDayView(baseView, scopeName, scopeLevel);
   const attention = computeAttention(view, ctx.readiness?.gaps);
   const { alerts, counts } = attention;
   const tasks = Object.values(view.tasks ?? {});
@@ -117,26 +109,26 @@ export default function IntelligenceSection({ ctx, campaignId, refresh }) {
   const pollingUnits = Object.values(view.pollingUnits ?? {});
   const agents = Object.values(view.agents ?? {});
   const incidents = Object.values(view.incidents ?? {});
-  const feed = view.feed ?? [];
+  const feed = scopeFeed(baseView.feed ?? [], log, baseView, scope);
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(340px,1fr))", gap: 18 }}>
       <div>
-        <Label>Ask ElectionCanon</Label>
-        <AskPanel view={view} log={log} />
+        <Label>{t("nav.intelligence")}</Label>
+        <AskPanel view={view} log={log} onSection={onSection} />
       </div>
 
       <div>
-        <Label>Alerts</Label>
+        <Label>{t("ask.alerts")}</Label>
         <Panel>
           {alerts.length === 0
-            ? <div style={{ fontFamily: UI, fontSize: 12.5, color: TEAL }}>No open alerts.</div>
+            ? <div style={{ fontFamily: UI, fontSize: 12.5, color: TEAL }}>{t("ask.noOpenAlerts")}</div>
             : alerts.slice(0, 12).map((a, i) => <AlertRow key={i} text={a.text} tone={TONE_COLOR[a.tone] ?? AMBER} />)}
         </Panel>
       </div>
 
       <div>
-        <Label>Coverage gaps</Label>
+        <Label>{t("ask.coverageGaps")}</Label>
         <Panel>
           <div style={{ fontFamily: UI, fontSize: 13, color: IVORY, lineHeight: 1.9 }}>
             {counts.wardsWithoutCoordinator} ward{counts.wardsWithoutCoordinator === 1 ? "" : "s"} with no coordinator<br />
@@ -150,7 +142,7 @@ export default function IntelligenceSection({ ctx, campaignId, refresh }) {
       </div>
 
       <div>
-        <Label>Ward coverage</Label>
+        <Label>{t("ask.wardCoverage")}</Label>
         <Panel>
           <div style={{ fontFamily: UI, fontSize: 13, color: IVORY }}>
             {wards.length} ward{wards.length === 1 ? "" : "s"} known · {wards.filter((w) => w.organisation).length} with a coordinator/team
@@ -159,7 +151,7 @@ export default function IntelligenceSection({ ctx, campaignId, refresh }) {
       </div>
 
       <div>
-        <Label>Task bottlenecks</Label>
+        <Label>{t("ask.taskBottlenecks")}</Label>
         <Panel>
           <div style={{ fontFamily: UI, fontSize: 13, color: IVORY }}>
             {tasks.filter((t) => t.status === TASK_STATUS.BLOCKED).length} blocked ·{" "}
@@ -169,7 +161,7 @@ export default function IntelligenceSection({ ctx, campaignId, refresh }) {
       </div>
 
       <div>
-        <Label>Election-day simulation statistics</Label>
+        <Label>{t("ask.electionDaySimStats")}</Label>
         <Panel accent={AMBER}>
           <div style={{ fontFamily: UI, fontSize: 12.5, color: IVORY, lineHeight: 1.9 }}>
             {pollingUnits.length} polling unit{pollingUnits.length === 1 ? "" : "s"} · {agents.length} agent{agents.length === 1 ? "" : "s"} assigned<br />
@@ -180,7 +172,7 @@ export default function IntelligenceSection({ ctx, campaignId, refresh }) {
       </div>
 
       <div>
-        <Label>Activity trend</Label>
+        <Label>{t("ask.activityTrend")}</Label>
         <Panel>
           <div style={{ fontFamily: UI, fontSize: 13, color: IVORY }}>{feed.length} recorded event{feed.length === 1 ? "" : "s"} in this workspace</div>
           <div style={{ marginTop: 8 }}>

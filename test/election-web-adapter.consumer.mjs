@@ -10,7 +10,7 @@
 // ============================================================
 
 import {
-  getAuthenticatedUserId, readElectionCanon, activateElection,
+  getAuthenticatedUserId, readElectionCanon, activateElection, readElectionLog,
   WRITE_CHANNEL, prepareElectionWrite, approveElectionWrite,
 } from "../src/os/electionWebAdapter.js";
 import { ACTIVATION } from "../src/os/electionContext.js";
@@ -279,6 +279,69 @@ console.log("\nE — CANON REFRESH (no cache, through the Web adapter)");
      after.readiness.candidateRegistered === true);
   ok("E2. the two results are not the same object and do not share the stale value",
      before !== after && before.readiness.candidateRegistered !== after.readiness.candidateRegistered);
+}
+
+// ============================================================
+console.log("\nH — readElectionLog() CANONICAL RETURN SHAPE (RELEASE VALIDATION FIX)");
+//
+// readElectionLog() previously forwarded loadElectionLog()'s own
+// { events, error } verbatim on its success path, while its two
+// early-return (unauthenticated/unscoped) branches used { log, error } —
+// a real shape mismatch. Canonical shape is now { log, error } on every
+// path. loadElectionLog() itself (electionContext.js) is UNTOUCHED — this
+// section proves the fix at the one boundary that actually needed it.
+// ============================================================
+{
+  // storeA/campaignA/event are the SAME ones section E already set up —
+  // storeA.election_events has exactly one real, inserted candidate event.
+  const success = await readElectionLog({ client: fakeClient(storeA, OWNER_A), requestedCampaign: campaignA });
+  ok("H1a. a successful read resolves { log, error } — never { events, error }",
+     Array.isArray(success.log) && !("events" in success) && success.error === null);
+  ok("H1b. the resolved object has EXACTLY the two canonical keys, not a compatibility superset",
+     JSON.stringify(Object.keys(success).sort()) === JSON.stringify(["error", "log"]));
+
+  const unauthenticated = await readElectionLog({ client: fakeClient(storeA, null) });
+  ok("H2a. the unauthenticated early return also resolves { log, error } — same shape as the success path",
+     Array.isArray(unauthenticated.log) && !("events" in unauthenticated) &&
+     unauthenticated.log.length === 0 && typeof unauthenticated.error === "string");
+
+  const unauthorized = await readElectionLog({ client: fakeClient(storeA, OWNER_B), requestedCampaign: campaignA });
+  ok("H2b. the unauthorized-scope early return also resolves { log, error } — same shape again",
+     Array.isArray(unauthorized.log) && !("events" in unauthorized) &&
+     unauthorized.log.length === 0 && typeof unauthorized.error === "string");
+
+  const storedEvent = storeA.election_events[0].payload;
+  ok("H3. Canon's event display receives the SAME events the store actually holds — none lost, none fabricated",
+     success.log.length === storeA.election_events.length &&
+     success.log.some((e) => e.eventId === storedEvent.eventId && e.type === storedEvent.type));
+
+  // Existing Intelligence behaviour is unchanged BECAUSE Election's own
+  // deterministic adapter/responder never read `log`/`tools` at all — so a
+  // `log` that is now genuinely populated (previously always [] via the
+  // bug) has zero effect on any answer askForge() produces for Election.
+  // Proven at the source level, the same way this repo proves every other
+  // "this code path is never reached" claim (comment-stripped regex).
+  const inferSrc = src("../src/domains/election/studio/infer.js");
+  const respondSrc = src("../src/domains/election/studio/respond.js");
+  // Anchored on the actual function signature, not a blanket file-wide
+  // scan — ADAPTER_CONTRACT.signature below legitimately documents the
+  // GENERIC ({ intent, canon, tools, language }) shape every domain's
+  // adapter COULD accept; what matters is that Election's own
+  // deterministicAdapter destructures only intent/canon, never uses that
+  // wider contract's tools/log parameters.
+  ok("H4. Election's deterministic adapter (infer.js) is declared with only { intent, canon } — never destructures tools/log",
+     /export const deterministicAdapter = \(\{\s*intent,\s*canon\s*\}\)/.test(inferSrc));
+  ok("H5. Election's response composer (respond.js) never references `log` or `tools` anywhere — same guarantee",
+     !/\blog\b/.test(respondSrc) && !/\btools\b/.test(respondSrc));
+
+  // No new consumer was introduced by this fix — still exactly the two
+  // call sites that existed before (EventsSection.jsx, IntelligenceSection.jsx).
+  const electionPagesDir = join(fileURLToPath(new URL("../", import.meta.url)), "src", "pages", "election");
+  const callSites = readdirSync(electionPagesDir)
+    .filter((f) => f.endsWith(".jsx"))
+    .filter((f) => /readElectionLog\(\{/.test(stripComments(readFileSync(join(electionPagesDir, f), "utf8"))));
+  ok("H6. exactly two src/pages/election/*.jsx files call readElectionLog() — no new call site was introduced",
+     callSites.length === 2 && callSites.includes("EventsSection.jsx") && callSites.includes("IntelligenceSection.jsx"));
 }
 
 // ============================================================

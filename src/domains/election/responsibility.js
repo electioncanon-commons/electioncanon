@@ -1,3 +1,5 @@
+import { getScopeGeographyRefs } from "./geography/read.js";
+
 // ============================================================
 // FORGE ELECTION — SHARED RESPONSIBILITY RESOLUTION  (Gate A)
 //
@@ -64,4 +66,37 @@ export const SCOPED_RESPONSIBILITY_ROLES = Object.freeze([
 export const isScopedResponsibility = (responsibility) =>
   Boolean(responsibility && SCOPED_RESPONSIBILITY_ROLES.includes(responsibility.responsibilityRole));
 
-export default { resolveMyResponsibility, SCOPED_RESPONSIBILITY_ROLES, isScopedResponsibility };
+// ROLE_SCOPE_03 — THE canonical effective-scope object. Every surface that
+// needs to decide "campaign-wide or narrowed to my geography" (Work, Ask,
+// Election Operations) calls this ONE function rather than re-deriving the
+// campaign-wide/scoped decision itself — Places (TerritorySection.jsx) and
+// Canon (EventsSection.jsx) already made this same decision independently,
+// via isScopedResponsibility(resolveMyResponsibility(...)); this wraps that
+// exact same, unchanged logic in one reusable shape so new callers don't
+// invent a second interpretation of it.
+//
+// `scopeGeographyRefs` is the caller's OWN responsibility.geographyRef plus
+// its real descendants (see geography/read.js's getScopeGeographyRefs) —
+// resolving descendants requires a read, so this function is async and
+// callers await it once (e.g. in a useEffect keyed on the resolved
+// responsibility), not on every render.
+export async function resolveEffectiveScope({ client, view, campaignId, userId, membershipRole }) {
+  const responsibility = resolveMyResponsibility({ view, campaignId, userId });
+  const scoped = isScopedResponsibility(responsibility);
+  if (!scoped) {
+    return Object.freeze({
+      campaignId, membershipRole, responsibilityRole: responsibility?.responsibilityRole ?? null,
+      isCampaignWide: true, scopeLevel: null, scopeGeographyRef: null, scopeGeographyRefs: null,
+    });
+  }
+  const { data: scopeGeographyRefs } = await getScopeGeographyRefs({
+    client, level: responsibility.level, geographyRef: responsibility.geographyRef,
+  });
+  return Object.freeze({
+    campaignId, membershipRole, responsibilityRole: responsibility.responsibilityRole,
+    isCampaignWide: false, scopeLevel: responsibility.level, scopeGeographyRef: responsibility.geographyRef,
+    scopeGeographyRefs,
+  });
+}
+
+export default { resolveMyResponsibility, SCOPED_RESPONSIBILITY_ROLES, isScopedResponsibility, resolveEffectiveScope };

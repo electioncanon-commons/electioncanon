@@ -31,16 +31,13 @@ export const T = Object.freeze({
 
 export const FONT = Object.freeze({
   // Poppins Black carries every heading that represents authority.
-  display: "var(--forge-display-font, 'Poppins', system-ui, sans-serif)",
-  ui:      "var(--forge-brand-font, 'Poppins', system-ui, sans-serif)",
+  display: "var(--font-display, 'Poppins', system-ui, sans-serif)",
+  ui:      "var(--font-ui, 'Poppins', system-ui, sans-serif)",
   mono:    "var(--forge-mono, ui-monospace, monospace)",
 });
 
 // Spacing: one scale, so rooms cannot drift apart.
 export const S = Object.freeze({ xs:4, sm:8, md:14, lg:20, xl:28, xxl:40 });
-
-// Geometry re-exported so a room imports one module, not three.
-export { FORGE_CLIPS } from "./geometry.js";
 
 // ---- OPERATING PRINCIPLES ----
 // Constitutional statements, not taglines. Every room opens with one.

@@ -26,30 +26,47 @@ import {
   // the same warning role it plays as DemoTag's background elsewhere.
   AMBER,
 } from "./election/shared.jsx";
-import { FORGE_CLIPS } from "../os/geometry.js";
+import { CLIP_PATHS } from "../os/geometry.js";
+// VISIBILITY EXPANSION PASS — this page previously had ZERO t() call sites
+// (see docs/multilingual/UI-STRING-INVENTORY.md's addendum). Reuses the
+// EXISTING language session/selector/dictionary unchanged — App.jsx now
+// mounts the same <LanguageProvider> this component already used
+// authenticated-side, one level up, around this route only (see App.jsx's
+// own comment). No second language system, no new context.
+import { useTranslation } from "./election/useTranslation.js";
+import { LanguageSelector } from "./election/LanguageSelector.jsx";
 
 // Any AVAILABLE_NOW capability whose own copy says "simulat..." is real and
 // shipped, but its DATA is demonstration data, not an official result — flag
 // it distinctly rather than let it read identically to a fully-live feature.
 const isSimulated = (text) => /simulat/i.test(text);
 
+// VISIBILITY EXPANSION PASS — `label` is now a uiStrings.js KEY, not a
+// literal string (reusing territory.office/territory.constituency/
+// nav.readiness/nav.chat where an identical translation already exists
+// elsewhere, same "reuse the existing registry" discipline as the rest of
+// this codebase). `body` stays literal English on purpose — see this
+// pass's own scope note at the top of this file: section kickers/headings
+// and short labels are translated everywhere, but the longer per-step
+// explanatory paragraphs are deliberately left for a future pass rather
+// than rushed through five more languages in one go.
 const WORKFLOW_STEPS = Object.freeze([
-  { label: "Election", body: "Choose your election — presidential, senatorial, gubernatorial, and more." },
-  { label: "Office", body: "Choose the office you're contesting or observing." },
-  { label: "Constituency", body: "Choose your constituency." },
-  { label: "Territory", body: "ElectionCanon maps the territory — states and LGAs, ward by ward where authoritative geography data exists." },
-  { label: "Organisation", body: "Build your campaign organisation — invite the people who will run it, by email." },
-  { label: "Responsibility", body: "Assign responsibility — every coordinator gets a real, recorded territory, not a title." },
-  { label: "Readiness", body: "Track readiness as COMPLETE, INCOMPLETE, AT RISK, or UNKNOWN — never a fabricated percentage." },
-  { label: "Coordination", body: "Coordinate the work — scoped chat, tasks, and campaign communications." },
-  { label: "Election Day", body: "Run election day — polling units, agents, results, and incidents, each attributed to who reported it." },
+  { label: "landing.step.election", body: "Choose your election — presidential, senatorial, gubernatorial, and more." },
+  { label: "territory.office", body: "Choose the office you're contesting or observing." },
+  { label: "territory.constituency", body: "Choose your constituency." },
+  { label: "landing.step.territory", body: "ElectionCanon maps the territory — states and LGAs, ward by ward where authoritative geography data exists." },
+  { label: "landing.step.organisation", body: "Build your campaign organisation — invite the people who will run it, by email." },
+  { label: "landing.step.responsibility", body: "Assign responsibility — every coordinator gets a real, recorded territory, not a title." },
+  { label: "nav.readiness", body: "Track readiness as COMPLETE, INCOMPLETE, AT RISK, or UNKNOWN — never a fabricated percentage." },
+  { label: "nav.chat", body: "Coordinate the work — scoped chat, tasks, and campaign communications." },
+  { label: "landing.step.electionDay", body: "Run election day — polling units, agents, results, and incidents, each attributed to who reported it." },
 ]);
 
 const HIERARCHY = Object.freeze([
-  { label: "Campaign Command", accent: TEAL, body: "The campaign's national coordination room — where the whole organisation stays aligned." },
-  { label: "LGA Coordinator", accent: PINK, body: "Responsible for one Local Government Area, with a coordination room scoped to exactly that territory." },
-  { label: "Ward Coordinator", accent: TEAL, body: "Responsible for one ward inside their LGA, invited directly by that LGA's own coordinator." },
-  { label: "Polling Unit Agent", accent: PINK, body: "Responsible for one polling unit, the front line of election day itself." },
+  { label: "landing.hierarchy.command", accent: TEAL, body: "The campaign's national coordination room — where the whole organisation stays aligned." },
+  { label: "role.lgaCoordinator", accent: PINK, body: "Responsible for one Local Government Area, with a coordination room scoped to exactly that territory." },
+  { label: "role.wardCoordinator", accent: TEAL, body: "Responsible for one ward inside their LGA, invited directly by that LGA's own coordinator." },
+  { label: "role.puAgent", accent: PINK, body: "Responsible for one polling unit, the front line of election day itself." },
 ]);
 
 const WORKSPACE_SECTIONS = Object.freeze([
@@ -71,15 +88,21 @@ const DIFFERENCE = Object.freeze([
 ]);
 
 const AUDIENCES = Object.freeze([
-  "Candidate campaigns", "Campaign directors", "Field coordinators",
-  "Volunteers", "Observer / monitoring organisations", "Election operations teams",
+  "landing.audience.candidate", "landing.audience.directors", "landing.audience.coordinators",
+  "landing.audience.volunteers", "landing.audience.observers", "landing.audience.opsTeams",
+]);
+
+const PROBLEM_TAGS = Object.freeze([
+  "landing.problemTag.whatsapp", "landing.problemTag.calls", "landing.problemTag.spreadsheets",
+  "landing.problemTag.volunteers", "landing.problemTag.responsibility", "landing.problemTag.territory",
+  "landing.problemTag.mobilisation",
 ]);
 
 function CtaButton({ children, onClick, primary }) {
   return (
     <button onClick={onClick} style={{
       fontFamily: UI, fontWeight: 700, fontSize: 12.5, letterSpacing: "0.12em", textTransform: "uppercase",
-      padding: "15px 26px", cursor: "pointer", clipPath: FORGE_CLIPS.button,
+      padding: "15px 26px", cursor: "pointer", clipPath: CLIP_PATHS.button,
       border: primary ? "none" : `1px solid ${BORDER}`,
       background: primary ? TEAL : "transparent",
       color: primary ? BLACK : IVORY,
@@ -108,81 +131,70 @@ function Section({ id, children, style = {} }) {
 
 export default function Landing() {
   const nav = useNavigate();
+  const { t } = useTranslation();
   const startCampaign = () => nav("/access");
   const seeHowItWorks = () => document.getElementById("how-it-works")?.scrollIntoView({ behavior: "smooth" });
 
   return (
-    <div className="forge-brand" style={{ background: BLACK, color: IVORY, fontFamily: UI, minHeight: "100vh" }}>
+    <div className="ec-brand" style={{ background: BLACK, color: IVORY, fontFamily: UI, minHeight: "100vh" }}>
 
       {/* ---------- HERO ---------- */}
       <Section style={{ paddingTop: "clamp(64px,11vw,120px)" }}>
-        <SectionKicker>ElectionCanon</SectionKicker>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 16, marginBottom: 16 }}>
+          <SectionKicker>ElectionCanon</SectionKicker>
+          <LanguageSelector />
+        </div>
         <h1 style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: "clamp(34px,6vw,64px)",
           letterSpacing: "-0.03em", lineHeight: 1.05, margin: "0 0 20px", maxWidth: 900 }}>
-          The operating system for running an election campaign.
+          {t("landing.heroHeadline")}
         </h1>
         <p style={{ fontFamily: UI, fontWeight: 700, fontSize: "clamp(15px,2vw,19px)", color: TEAL,
           lineHeight: 1.5, maxWidth: 720, margin: "0 0 20px" }}>
-          From campaign command to polling unit, everyone knows what they are
-          responsible for, where they are responsible, and what still needs
-          to be done.
+          {t("landing.heroSubheadline")}
         </p>
         <p style={{ color: "rgba(245,241,233,.75)", fontSize: 15.5, maxWidth: 640, lineHeight: 1.7, margin: "0 0 32px" }}>
-          ElectionCanon replaces fragmented campaign coordination — scattered
-          chats, calls, and spreadsheets — with one accountable operational
-          system: territory, organisation, responsibility, readiness, and
-          coordination, all built on a single event-sourced record that
-          every screen reads from.
+          {t("landing.heroBody")}
         </p>
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-          <CtaButton primary onClick={startCampaign}>Start a Campaign →</CtaButton>
-          <CtaButton onClick={seeHowItWorks}>See How It Works →</CtaButton>
+          <CtaButton primary onClick={startCampaign}>{t("landing.ctaStart")}</CtaButton>
+          <CtaButton onClick={seeHowItWorks}>{t("landing.ctaHowItWorks")}</CtaButton>
         </div>
       </Section>
 
       {/* ---------- THE PROBLEM ---------- */}
       <Section>
-        <SectionKicker accent={PINK}>The Problem</SectionKicker>
+        <SectionKicker accent={PINK}>{t("landing.problemKicker")}</SectionKicker>
         <h2 style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: "clamp(24px,3.4vw,34px)",
           letterSpacing: "-0.03em", margin: "0 0 22px", maxWidth: 760 }}>
-          Campaign coordination is usually scattered across a dozen different places.
+          {t("landing.problemHeading")}
         </h2>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 24 }}>
-          {["WhatsApp groups", "Phone calls", "Spreadsheets", "Scattered volunteers",
-            "Unclear responsibility", "Unknown territory coverage", "Last-minute mobilisation"].map((t) => (
-            <div key={t} style={{ fontFamily: UI, fontSize: 13, fontWeight: 700, color: IVORY,
-              border: `1px solid ${BORDER}`, padding: "10px 16px" }}>{t}</div>
+          {PROBLEM_TAGS.map((tagKey) => (
+            <div key={tagKey} style={{ fontFamily: UI, fontSize: 13, fontWeight: 700, color: IVORY,
+              border: `1px solid ${BORDER}`, padding: "10px 16px" }}>{t(tagKey)}</div>
           ))}
         </div>
         <p style={{ color: "rgba(245,241,233,.75)", fontSize: 15, maxWidth: 680, lineHeight: 1.7 }}>
-          None of this means a campaign isn't working hard — it means the
-          work has nowhere shared to live. ElectionCanon is the
-          infrastructure that brings it together: one record everyone in
-          the campaign can trust, instead of a dozen scattered ones nobody
-          fully sees.
+          {t("landing.problemBody")}
         </p>
       </Section>
 
       {/* ---------- THE CANON ---------- */}
       <Section>
-        <SectionKicker accent={PINK}>The Canon</SectionKicker>
+        <SectionKicker accent={PINK}>{t("landing.canonKicker")}</SectionKicker>
         <h2 style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: "clamp(24px,3.4vw,34px)",
           letterSpacing: "-0.03em", margin: "0 0 22px", maxWidth: 760 }}>
-          Every action leaves a record.
+          {t("landing.canonHeading")}
         </h2>
         <p style={{ color: "rgba(245,241,233,.75)", fontSize: 15, maxWidth: 680, lineHeight: 1.7, marginBottom: 28 }}>
-          ElectionCanon calls this record the Canon — a single, tenant-isolated
-          history that every screen reads from and every action writes to.
-          Assign a ward. Report readiness. Send a message. Each becomes a
-          permanent, attributed fact, not a claim that quietly disappears
-          into someone's phone.
+          {t("landing.canonBody")}
         </p>
         <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10 }}>
-          {["Action", "Event", "Record", "Canon"].map((step, i, arr) => (
-            <div key={step} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {["landing.chainAction", "landing.chainEvent", "landing.chainRecord", "nav.canon"].map((key, i, arr) => (
+            <div key={key} style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 11.5, letterSpacing: "0.08em",
                 textTransform: "uppercase", color: IVORY, border: `1px solid ${BORDER}`, padding: "10px 16px" }}>
-                {step}
+                {t(key)}
               </div>
               {i < arr.length - 1 && <span style={{ color: MUTED, fontSize: 15 }}>→</span>}
             </div>
@@ -192,10 +204,10 @@ export default function Landing() {
 
       {/* ---------- HOW ELECTIONCANON WORKS ---------- */}
       <Section id="how-it-works">
-        <SectionKicker>How ElectionCanon Works</SectionKicker>
+        <SectionKicker>{t("landing.howItWorksKicker")}</SectionKicker>
         <h2 style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: "clamp(24px,3.4vw,34px)",
           letterSpacing: "-0.03em", margin: "0 0 32px", maxWidth: 760 }}>
-          From election to election day, in one continuous system.
+          {t("landing.howItWorksHeading")}
         </h2>
         <div style={{ display: "grid", gap: 2 }}>
           {WORKFLOW_STEPS.map((step, i) => (
@@ -204,7 +216,7 @@ export default function Landing() {
               <div style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: 22, color: TEAL,
                 width: 40, flexShrink: 0 }}>{String(i + 1).padStart(2, "0")}</div>
               <div>
-                <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 14, color: IVORY, marginBottom: 4 }}>{step.label}</div>
+                <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 14, color: IVORY, marginBottom: 4 }}>{t(step.label)}</div>
                 <div style={{ fontFamily: UI, fontSize: 13.5, color: MUTED, lineHeight: 1.6 }}>{step.body}</div>
               </div>
             </div>
@@ -214,17 +226,17 @@ export default function Landing() {
 
       {/* ---------- FROM CAMPAIGN COMMAND TO POLLING UNIT ---------- */}
       <Section>
-        <SectionKicker accent={PINK}>From Campaign Command to Polling Unit</SectionKicker>
+        <SectionKicker accent={PINK}>{t("landing.hierarchyKicker")}</SectionKicker>
         <h2 style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: "clamp(24px,3.4vw,34px)",
           letterSpacing: "-0.03em", margin: "0 0 32px", maxWidth: 760 }}>
-          Every person gets a real operational responsibility — not just another name in a group chat.
+          {t("landing.hierarchyHeading")}
         </h2>
         <div style={{ display: "grid", gap: 14, maxWidth: 640 }}>
           {HIERARCHY.map((h, i) => (
             <div key={h.label}>
               <Panel accent={h.accent}>
                 <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 10.5, letterSpacing: "0.14em",
-                  textTransform: "uppercase", color: h.accent, marginBottom: 8 }}>{h.label}</div>
+                  textTransform: "uppercase", color: h.accent, marginBottom: 8 }}>{t(h.label)}</div>
                 <div style={{ fontFamily: UI, fontSize: 13.5, color: "rgba(245,241,233,.82)", lineHeight: 1.6 }}>{h.body}</div>
               </Panel>
               {i < HIERARCHY.length - 1 && (
@@ -237,10 +249,10 @@ export default function Landing() {
 
       {/* ---------- THE CAMPAIGN'S OPERATIONAL WORKSPACE ---------- */}
       <Section>
-        <SectionKicker>Campaign Studio</SectionKicker>
+        <SectionKicker>{t("landing.workspaceKicker")}</SectionKicker>
         <h2 style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: "clamp(24px,3.4vw,34px)",
           letterSpacing: "-0.03em", margin: "0 0 32px", maxWidth: 760 }}>
-          Everything the campaign needs, in one operational workspace.
+          {t("landing.workspaceHeading")}
         </h2>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 16 }}>
           {WORKSPACE_SECTIONS.map((s, i) => (
@@ -279,10 +291,10 @@ export default function Landing() {
 
       {/* ---------- WHAT EXISTS TODAY ---------- */}
       <Section style={{ borderTop: `1px solid ${BORDER}` }}>
-        <SectionKicker>What Exists Today</SectionKicker>
+        <SectionKicker>{t("landing.existsKicker")}</SectionKicker>
         <h2 style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: "clamp(24px,3.4vw,34px)",
           letterSpacing: "-0.03em", margin: "0 0 12px", maxWidth: 760 }}>
-          Operational, simulated, and in development — never blurred together.
+          {t("landing.existsHeading")}
         </h2>
         <p style={{ color: "rgba(245,241,233,.75)", fontSize: 14.5, maxWidth: 680, lineHeight: 1.7, marginBottom: 32 }}>
           This list is the same single source of truth the product's own
@@ -293,7 +305,7 @@ export default function Landing() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 24 }}>
           <div>
             <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.14em",
-              textTransform: "uppercase", color: TEAL, marginBottom: 14 }}>Operational</div>
+              textTransform: "uppercase", color: TEAL, marginBottom: 14 }}>{t("landing.categoryOperational")}</div>
             <div style={{ display: "grid", gap: 2 }}>
               {CAPABILITIES_AVAILABLE_NOW.map((c, i) => (
                 <div key={c} style={{ display: "flex", gap: 10, alignItems: "flex-start",
@@ -313,7 +325,7 @@ export default function Landing() {
           </div>
           <div>
             <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.14em",
-              textTransform: "uppercase", color: PINK, marginBottom: 14 }}>In Development</div>
+              textTransform: "uppercase", color: PINK, marginBottom: 14 }}>{t("landing.categoryInDevelopment")}</div>
             <div style={{ display: "grid", gap: 2 }}>
               {CAPABILITIES_COMING_NEXT.map((c, i) => (
                 <div key={c} style={{ display: "flex", gap: 10, alignItems: "flex-start",
@@ -329,10 +341,10 @@ export default function Landing() {
 
       {/* ---------- ARCHITECTURE ---------- */}
       <Section style={{ borderTop: `1px solid ${BORDER}` }}>
-        <SectionKicker>Architecture</SectionKicker>
+        <SectionKicker>{t("landing.architectureKicker")}</SectionKicker>
         <h2 style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: "clamp(24px,3.4vw,34px)",
           letterSpacing: "-0.03em", margin: "0 0 22px", maxWidth: 760 }}>
-          Rooms read. Events write.
+          {t("landing.architectureHeading")}
         </h2>
         <p style={{ color: "rgba(245,241,233,.75)", fontSize: 15, maxWidth: 680, lineHeight: 1.7 }}>
           No screen stores election state on its own. An action — registering
@@ -345,65 +357,55 @@ export default function Landing() {
 
       {/* ---------- OPEN SOURCE / COMMUNITY ---------- */}
       <Section>
-        <SectionKicker accent={PINK}>Open Source</SectionKicker>
+        <SectionKicker accent={PINK}>{t("landing.openSourceKicker")}</SectionKicker>
         <h2 style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: "clamp(24px,3.4vw,34px)",
           letterSpacing: "-0.03em", margin: "0 0 22px", maxWidth: 760 }}>
-          Inspect the machine.
+          {t("landing.openSourceHeading")}
         </h2>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 24 }}>
           <p style={{ color: "rgba(245,241,233,.75)", fontSize: 14.5, lineHeight: 1.7, margin: 0 }}>
-            ElectionCanon is licensed under AGPL-3.0 — read it, run it
-            locally, question it, and improve it. Election infrastructure
-            should be inspectable by the people who rely on it, not a black
-            box.
+            {t("landing.openSourceBody1")}
           </p>
           <p style={{ color: "rgba(245,241,233,.75)", fontSize: 14.5, lineHeight: 1.7, margin: 0 }}>
-            <b style={{ color: IVORY }}>Build with us.</b> An independent,
-            ElectionCanon-controlled public repository is now live. Read it,
-            run it locally, question it, and contribute as the project
-            develops.
+            {t("landing.openSourceBody2")}
           </p>
         </div>
       </Section>
 
       {/* ---------- WHO IT IS FOR ---------- */}
       <Section>
-        <SectionKicker>Who It Is For</SectionKicker>
+        <SectionKicker>{t("landing.whoKicker")}</SectionKicker>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 14, marginBottom: 24 }}>
-          {AUDIENCES.map((a, i) => (
-            <div key={a} style={{ fontFamily: UI, fontWeight: 700, fontSize: 13.5, color: IVORY,
-              borderLeft: `2px solid ${[TEAL, PINK][i % 2]}`, padding: "8px 0 8px 14px" }}>{a}</div>
+          {AUDIENCES.map((key, i) => (
+            <div key={key} style={{ fontFamily: UI, fontWeight: 700, fontSize: 13.5, color: IVORY,
+              borderLeft: `2px solid ${[TEAL, PINK][i % 2]}`, padding: "8px 0 8px 14px" }}>{t(key)}</div>
           ))}
         </div>
         <p style={{ color: "rgba(245,241,233,.65)", fontSize: 13, maxWidth: 680, lineHeight: 1.7 }}>
-          ElectionCanon does not run for or against any party or candidate,
-          and its use implies no endorsement by, or affiliation with, any
-          electoral authority or government body.
+          {t("landing.nonAffiliation")}
         </p>
       </Section>
 
       {/* ---------- START ---------- */}
       <Section style={{ borderTop: `1px solid ${BORDER}` }}>
-        <SectionKicker accent={PINK}>Start</SectionKicker>
+        <SectionKicker accent={PINK}>{t("landing.startKicker")}</SectionKicker>
         <h2 style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: "clamp(28px,4vw,44px)",
           letterSpacing: "-0.03em", margin: "0 0 16px", maxWidth: 760 }}>
-          Create your ElectionCanon campaign.
+          {t("landing.startHeading")}
         </h2>
         <p style={{ color: "rgba(245,241,233,.75)", fontSize: 15, maxWidth: 620, lineHeight: 1.7, marginBottom: 28 }}>
-          Create an account, establish your campaign, select your election,
-          office, and constituency, and begin building your organisation —
-          from campaign command down to the polling unit.
+          {t("landing.startBody")}
         </p>
-        <CtaButton primary onClick={startCampaign}>Start a Campaign →</CtaButton>
+        <CtaButton primary onClick={startCampaign}>{t("landing.ctaStart")}</CtaButton>
       </Section>
 
       {/* ---------- FOOTER ---------- */}
       <footer style={{ borderTop: `1px solid ${BORDER}`, padding: "clamp(28px,5vw,40px) clamp(20px,5vw,60px)" }}>
         <div style={{ maxWidth: 1180, margin: "0 auto", display: "flex", flexWrap: "wrap",
           justifyContent: "space-between", gap: 14, fontFamily: UI, fontSize: 12, color: MUTED }}>
-          <div>ElectionCanon — open source under AGPL-3.0.</div>
+          <div>{t("landing.footerCopyright")}</div>
           <a href="https://github.com/electioncanon-commons/electioncanon" target="_blank" rel="noreferrer"
-            style={{ color: TEAL, textDecoration: "none", fontWeight: 700 }}>View source on GitHub →</a>
+            style={{ color: TEAL, textDecoration: "none", fontWeight: 700 }}>{t("landing.viewSourceCta")}</a>
         </div>
       </footer>
     </div>

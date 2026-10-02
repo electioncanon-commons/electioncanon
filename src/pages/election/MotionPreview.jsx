@@ -1,5 +1,5 @@
 // ============================================================
-// ELECTION FORGE — CAMPAIGN STUDIO: MOTION PREVIEW  (Gate A.5.5.3, extended Gates A.5.6/A.6)
+// ELECTIONCANON — CAMPAIGN STUDIO: MOTION PREVIEW  (Gate A.5.5.3, extended Gates A.5.6/A.6)
 //
 // An EPHEMERAL, non-persisted demonstration surface for the 3 approved
 // CREATIVE_TEMPLATES families (Statement/Hero, Announcement, CTA) — the
@@ -182,6 +182,7 @@ import { deriveTotalFrames, frameIndexForElapsed } from "../../domains/election/
 import { CREATIVE_LANGUAGE_LIST, LANGUAGE_CONTEXT_FIELD, defaultUserLanguageContext, validateUserLanguageContext } from "../../domains/election/design/language.js";
 import { interpretCreativeCommand, applyCreativeOperation, CREATIVE_OPERATION_KIND } from "../../domains/election/design/creativeCommand.js";
 import { Label, Panel, DemoTag, friendlyError, ensureCreativeFontsReady, downloadBlob, UI, IVORY, MUTED, TEAL, PINK, BORDER, BLACK, inputStyle } from "./shared.jsx";
+import { useTranslation } from "./useTranslation.js";
 
 // GATE A.5.6 — GOLDEN CREATIVE FORMAT. One canonical format/dimension pair
 // for this surface's live preview AND its export — never two separate
@@ -231,6 +232,7 @@ function buildEphemeralPayload(template, content) {
 }
 
 export default function MotionPreview() {
+  const { t } = useTranslation();
   const [familyKey, setFamilyKey] = useState(CREATIVE_FAMILY.STATEMENT);
   const template = CREATIVE_TEMPLATES[familyKey];
 
@@ -650,7 +652,7 @@ export default function MotionPreview() {
         <DemoTag label="Ephemeral — nothing here is saved as a draft, but Export PNG downloads it directly" />
       </div>
 
-      <Label>Family</Label>
+      <Label>{t("studio.family")}</Label>
       <select value={familyKey} onChange={(e) => setFamilyKey(e.target.value)} aria-label="Creative family"
         style={{ ...inputStyle, marginBottom: 14 }}>
         {CREATIVE_TEMPLATE_LIST.map((t) => <option key={t.family} value={t.family}>{t.label}</option>)}
@@ -659,24 +661,24 @@ export default function MotionPreview() {
       {/* GATE A.7.1 — three independent language settings. Not yet wired to
           any real interface translation, AI conversation, or creative-text
           generation — see this file's own header and design/language.js. */}
-      <Label>Language</Label>
+      <Label>{t("studio.languageHeading")}</Label>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 8, marginBottom: 14 }}>
         <div>
-          <div style={{ fontFamily: UI, fontSize: 10.5, color: MUTED, marginBottom: 4 }}>Interface</div>
+          <div style={{ fontFamily: UI, fontSize: 10.5, color: MUTED, marginBottom: 4 }}>{t("studio.interfaceLanguage")}</div>
           <select value={languageContext.interfaceLanguage} onChange={setLanguage(LANGUAGE_CONTEXT_FIELD.INTERFACE)}
             aria-label="Interface language" style={inputStyle}>
             {CREATIVE_LANGUAGE_LIST.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}
           </select>
         </div>
         <div>
-          <div style={{ fontFamily: UI, fontSize: 10.5, color: MUTED, marginBottom: 4 }}>Talk to AI in</div>
+          <div style={{ fontFamily: UI, fontSize: 10.5, color: MUTED, marginBottom: 4 }}>{t("studio.aiInteractionLanguage")}</div>
           <select value={languageContext.aiInteractionLanguage} onChange={setLanguage(LANGUAGE_CONTEXT_FIELD.AI_INTERACTION)}
             aria-label="AI interaction language" style={inputStyle}>
             {CREATIVE_LANGUAGE_LIST.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}
           </select>
         </div>
         <div>
-          <div style={{ fontFamily: UI, fontSize: 10.5, color: MUTED, marginBottom: 4 }}>Graphic text in</div>
+          <div style={{ fontFamily: UI, fontSize: 10.5, color: MUTED, marginBottom: 4 }}>{t("studio.creativeOutputLanguage")}</div>
           <select value={languageContext.creativeOutputLanguage} onChange={setLanguage(LANGUAGE_CONTEXT_FIELD.CREATIVE_OUTPUT)}
             aria-label="Creative output language" style={inputStyle}>
             {CREATIVE_LANGUAGE_LIST.map((l) => <option key={l.code} value={l.code}>{l.name}</option>)}
@@ -750,13 +752,13 @@ export default function MotionPreview() {
           <div style={{ fontFamily: UI, fontSize: 10.5, color: MUTED, marginBottom: 4 }}>Image ({selectedElement.role})</div>
           {heroImage ? (
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <div style={{ fontFamily: UI, fontSize: 10.5, color: MUTED }}>Opacity</div>
+              <div style={{ fontFamily: UI, fontSize: 10.5, color: MUTED }}>{t("studio.opacity")}</div>
               <input type="range" min={0} max={1} step={0.01} value={selectedElement.properties.opacity}
                 onChange={(e) => setSelectedOpacity(Number(e.target.value))} aria-label="Image opacity" style={{ flex: 1, maxWidth: 200 }} />
               <div style={{ fontFamily: UI, fontSize: 10.5, color: IVORY, minWidth: 36 }}>{Math.round(selectedElement.properties.opacity * 100)}%</div>
             </div>
           ) : (
-            <div style={{ fontFamily: UI, fontSize: 11.5, color: MUTED }}>No photo added</div>
+            <div style={{ fontFamily: UI, fontSize: 11.5, color: MUTED }}>{t("studio.noPhotoAdded")}</div>
           )}
         </div>
       )}
@@ -768,7 +770,7 @@ export default function MotionPreview() {
         <div style={{ fontFamily: UI, fontSize: 10.5, color: MUTED, marginBottom: 4 }}>Tell the studio what to change</div>
         <div style={{ display: "flex", gap: 8 }}>
           <input value={commandText} onChange={(e) => setCommandText(e.target.value)}
-            placeholder='e.g. "center the headline"' aria-label="Creative command" style={{ ...inputStyle, marginBottom: 0, flex: 1 }} />
+            placeholder={t("studio.creativeCommandPlaceholder")} aria-label="Creative command" style={{ ...inputStyle, marginBottom: 0, flex: 1 }} />
           <button type="submit"
             style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.08em", textTransform: "uppercase",
               padding: "0 16px", border: `1px solid ${BORDER}`, background: "transparent", color: IVORY, cursor: "pointer" }}>

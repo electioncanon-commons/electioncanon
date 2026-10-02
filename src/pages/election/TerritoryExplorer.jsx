@@ -1,5 +1,5 @@
 // ============================================================
-// ELECTION FORGE — TERRITORY EXPLORER
+// ELECTIONCANON — TERRITORY EXPLORER
 //
 // Constituency -> LGA -> Ward -> Polling Unit drill-down, once a campaign
 // has set its territory (TerritorySection.jsx). Reads the real geography_*
@@ -20,6 +20,12 @@ import { prepareGeographyWrite, approveGeographyWrite, GEOGRAPHY_OPERATION } fro
 import { GEOGRAPHY_LEVEL } from "../../domains/election/geography/write.js";
 import { deriveTerritoryReadiness } from "../../domains/election/studio/territoryReadiness.js";
 import { Label, Panel, StructuredWritePanel, GapRow, UI, IVORY, TEAL, AMBER, PINK, MUTED, BORDER } from "./shared.jsx";
+import { ContextualAsk } from "./AskAssistant.jsx";
+import { useTranslation } from "./useTranslation.js";
+
+// UX REDESIGN SLICE 5 — real, already-answerable example prompts (see
+// IntelligenceSection.jsx's own advertised examples / AskAssistant.jsx).
+const PLACES_PROMPTS = Object.freeze(["What is the status of Ward 3?", "Which polling units have no agent?"]);
 
 function PercentBar({ assigned, total, percent, note }) {
   if (percent == null) {
@@ -78,6 +84,7 @@ function AssignPanel({ title, level, geographyRef, roster, geographyTree, campai
 }
 
 export default function TerritoryExplorer({ ctx, campaignId, refresh, territory, offices, states, onSection }) {
+  const { t } = useTranslation();
   const office = offices.find((o) => o.id === territory.office) ?? null;
   const state = states.find((s) => s.code === territory.state) ?? null;
   // NATIONAL GEOGRAPHY PASS — a state/national-boundary office (Governor,
@@ -174,30 +181,35 @@ export default function TerritoryExplorer({ ctx, campaignId, refresh, territory,
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 18 }}>
           <div>
-            <div style={{ fontFamily: UI, fontSize: 10, color: MUTED, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>LGA coordinators</div>
+            <div style={{ fontFamily: UI, fontSize: 10, color: MUTED, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>{t("territory.lgaCoordinatorsHeading")}</div>
             <PercentBar assigned={readiness.lgaCoverage.assigned} total={readiness.lgaCoverage.totalLgas} percent={readiness.lgaCoverage.percent} note={readiness.lgaCoverage.note} />
           </div>
           <div>
-            <div style={{ fontFamily: UI, fontSize: 10, color: MUTED, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Ward coordinators</div>
+            <div style={{ fontFamily: UI, fontSize: 10, color: MUTED, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>{t("territory.wardCoordinatorsHeading")}</div>
             <PercentBar assigned={readiness.wardCoverage.assigned} total={readiness.wardCoverage.totalWards} percent={readiness.wardCoverage.percent} note={readiness.wardCoverage.note} />
           </div>
           <div>
-            <div style={{ fontFamily: UI, fontSize: 10, color: MUTED, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>Polling-unit agents</div>
+            <div style={{ fontFamily: UI, fontSize: 10, color: MUTED, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>{t("electionDay.puAgentsHeading")}</div>
             <PercentBar assigned={readiness.pollingUnitCoverage.assigned} total={readiness.pollingUnitCoverage.totalPollingUnits} percent={readiness.pollingUnitCoverage.percent} note={readiness.pollingUnitCoverage.note} />
           </div>
         </div>
       </Panel>
 
+      <div style={{ marginTop: 14 }}>
+        <ContextualAsk triggerLabel="Ask about this coverage" contextLabel="Places"
+          suggestedPrompts={PLACES_PROMPTS} view={ctx.view ?? {}} onSection={onSection} />
+      </div>
+
       {territory.constituency && !constituencyLead && (
         <div style={{ marginTop: 18 }}>
-          <AssignPanel title="Assign Constituency Lead" level={GEOGRAPHY_LEVEL.CONSTITUENCY}
+          <AssignPanel title={`${t("action.assign")} ${t("role.constituencyLead")}`} level={GEOGRAPHY_LEVEL.CONSTITUENCY}
             geographyRef={{ value: territory.constituency, label: tree.constituency.name }}
             roster={roster} geographyTree={tree} campaignId={campaignId} refresh={refresh} onSection={onSection} />
         </div>
       )}
 
       <div style={{ marginTop: 18 }}>
-        <Label>Local Government Areas</Label>
+        <Label>{t("territory.lgas")}</Label>
         <Panel>
           {tree.lgas.map((lga) => {
             const resp = responsibilityFor(GEOGRAPHY_LEVEL.LGA, lga.id);
@@ -205,19 +217,27 @@ export default function TerritoryExplorer({ ctx, campaignId, refresh, territory,
             const wardsForLga = tree.wards.filter((w) => w.lga_id === lga.id);
             return (
               <div key={lga.id} style={{ borderBottom: `1px solid ${BORDER}`, padding: "12px 0" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, cursor: "pointer" }}
-                  onClick={() => setExpandedLga(expanded ? null : lga.id)}>
+                {/* UX REDESIGN SLICE 3 (PLACES = COVERAGE) — a real <button>,
+                    not a clickable <div>, so expand/collapse (and therefore
+                    every row's own next action) is reachable by keyboard,
+                    not only by mouse. Same setExpandedLga(...) call, same
+                    visual layout — accessibility fix only. */}
+                <button type="button" onClick={() => setExpandedLga(expanded ? null : lga.id)}
+                  aria-expanded={expanded} style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+                    gap: 12, width: "100%", textAlign: "left", background: "none", border: "none", padding: 0,
+                    font: "inherit", cursor: "pointer" }}>
                   <div>
                     <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 13, color: IVORY }}>{expanded ? "▾" : "▸"} {lga.name}</div>
                     <div style={{ fontFamily: UI, fontSize: 11, color: MUTED, marginTop: 2 }}>
                       Coordinator: {resp ? personFor(resp.person) : "unassigned"}
+                      {!resp && !expanded && " — tap to assign"}
                     </div>
                   </div>
                   <span style={{ fontFamily: UI, fontWeight: 700, fontSize: 9.5, letterSpacing: "0.1em", textTransform: "uppercase",
-                    color: resp ? TEAL : PINK, border: `1px solid ${resp ? TEAL : PINK}`, padding: "3px 8px" }}>
+                    color: resp ? TEAL : PINK, border: `1px solid ${resp ? TEAL : PINK}`, padding: "3px 8px", flexShrink: 0 }}>
                     {resp ? resp.status : "unassigned"}
                   </span>
-                </div>
+                </button>
                 {expanded && (
                   <div style={{ marginLeft: 20, marginTop: 10 }}>
                     {!resp && (
@@ -237,10 +257,11 @@ export default function TerritoryExplorer({ ctx, campaignId, refresh, territory,
                         const pusForWard = pollingUnitsByWard[ward.id];
                         return (
                           <div key={ward.id} style={{ marginBottom: 10 }}>
-                            <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 12, color: IVORY, cursor: "pointer" }}
-                              onClick={() => toggleWard(ward.id)}>
+                            <button type="button" onClick={() => toggleWard(ward.id)} aria-expanded={wardExpanded}
+                              style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none",
+                                padding: 0, font: "inherit", fontFamily: UI, fontWeight: 700, fontSize: 12, color: IVORY, cursor: "pointer" }}>
                               {wardExpanded ? "▾" : "▸"} {ward.name}
-                            </div>
+                            </button>
                             {wardExpanded && (
                               pollingUnitsLoading === ward.id ? (
                                 <div style={{ fontFamily: UI, fontSize: 11, color: MUTED, marginLeft: 14 }}>Loading polling units…</div>

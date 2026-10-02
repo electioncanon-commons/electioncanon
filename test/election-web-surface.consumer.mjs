@@ -48,6 +48,9 @@ console.log("\nFORGE ELECTION — Web surface (structural)\n");
 const page = src(PAGE);
 const shared = src(SHARED);
 const landing = src(LANDING);
+// PHASE 2 UI-STRING WIRING — hoisted so multiple sections below can check
+// a translation key's actual English value without re-reading the file.
+const uiStringsSrc = src("../src/pages/election/uiStrings.js");
 
 // ============================================================
 console.log("F/J/K/L/M/N — CHANNEL INDEPENDENCE: the page reaches the Canon ONLY through electionWebAdapter.js");
@@ -178,8 +181,14 @@ console.log("\nG — RECOMMENDATION/CANON SEPARATION (and an honest note on scop
   // imports. There is therefore nothing for this page to mislabel as CANON;
   // the check instead proves gaps (which DO carry their own `action` field)
   // are rendered under their own label, never merged into the claims list.
+  // PHASE 2 UI-STRING WIRING — the literal headings are now
+  // t("readiness.claimsHeading") / t("readiness.gapsHeading") (see
+  // uiStrings.js, English values unchanged: "Readiness claims (CANON)" /
+  // "Gaps (CANON-derived)").
   ok("G1. gaps are rendered in their OWN block (GapRow/'Gaps'), never inside the claims ('Readiness claims') block",
-     /Readiness claims \(CANON\)/.test(page) && /Gaps \(CANON-derived\)/.test(page) &&
+     /t\(["']readiness\.claimsHeading["']\)/.test(page) && /t\(["']readiness\.gapsHeading["']\)/.test(page) &&
+     /"readiness\.claimsHeading":\s*"Readiness claims \(CANON\)"/.test(uiStringsSrc) &&
+     /"readiness\.gapsHeading":\s*"Gaps \(CANON-derived\)"/.test(uiStringsSrc) &&
      page.indexOf("ctx.readiness.claims.map") < page.indexOf("ctx.readiness.gaps.map"));
   ok("G2. the page imports no conversational/recommendation module (infer.js, respond.js, ask.js)",
      !/studio\/infer\.js|studio\/respond\.js|studio\/ask\.js/.test(page));
@@ -310,10 +319,18 @@ console.log("    not claim narrower capability than proposeElectionWrite() actua
   // against regressing to a single-example placeholder that (paired with no
   // other UI cue) implies only one write operation exists. Now checked in
   // shared.jsx, WriteActionPanel's new home.
-  const placeholderMatch = shared.match(/placeholder='([^']*)'\s*aria-label="Action"/);
+  //
+  // PHASE 2 UI-STRING WIRING — the literal placeholder string was replaced
+  // by t("ask.recordActionPlaceholder") (see uiStrings.js); this checks the
+  // JSX wires that key, and that uiStrings.js's own English value for it is
+  // still the two-command copy, rather than matching a literal that no
+  // longer exists in shared.jsx.
+  const placeholderKeyMatch = shared.match(/placeholder=\{t\(["']ask\.recordActionPlaceholder["']\)\}\s*aria-label="Action"/);
+  const placeholderValueMatch = uiStringsSrc.match(/"ask\.recordActionPlaceholder":\s*"((?:[^"\\]|\\.)*)"/);
   ok("P1. the Action input's placeholder demonstrates at least TWO different write commands, " +
      "not just the original ward-assignment example",
-     Boolean(placeholderMatch) && /assign/i.test(placeholderMatch[1]) && /report/i.test(placeholderMatch[1]));
+     Boolean(placeholderKeyMatch) && Boolean(placeholderValueMatch) &&
+     /assign/i.test(placeholderValueMatch[1]) && /report/i.test(placeholderValueMatch[1]));
 
   // The DEVELOPER-FACING contract — read the RAW file (not the
   // comment-stripped `shared`) specifically because this checks a comment's

@@ -1,5 +1,5 @@
 // ============================================================
-// ELECTION FORGE — SHARED ATOMS  (Alpha 1.0)
+// ELECTIONCANON — SHARED ATOMS  (Alpha 1.0)
 //
 // Extracted from src/pages/Election.jsx unchanged (same implementation,
 // same styling discipline) so the new Alpha section files (Home, Mobilize,
@@ -10,15 +10,32 @@
 
 import { useState, useCallback } from "react";
 import { T } from "../../os/forge.js";
-import { FORGE_CLIPS } from "../../os/geometry.js";
+import { CLIP_PATHS } from "../../os/geometry.js";
 import { supabase } from "../../lib/supabase.js";
 import { prepareElectionWrite, approveElectionWrite } from "../../os/electionWebAdapter.js";
 import { CREATIVE_FONT_LOAD_SPECS } from "../../domains/election/design/typography.js";
+import { PrimaryNav, ContextBar } from "./primitives.jsx";
+import { LanguageSelector } from "./LanguageSelector.jsx";
+import { useTranslation } from "./useTranslation.js";
 
 export const { black: BLACK, ivory: IVORY, teal: TEAL, amber: AMBER, pink: PINK,
   surface: SURFACE, border: BORDER, grey: MUTED } = T;
-export const UI = "var(--forge-brand-font, 'Poppins', system-ui, sans-serif)";
-export const DISPLAY = "var(--forge-display-font, 'Poppins', system-ui, sans-serif)";
+export const UI = "var(--font-ui, 'Poppins', system-ui, sans-serif)";
+export const DISPLAY = "var(--font-display, 'Poppins', system-ui, sans-serif)";
+
+// SEMANTIC ELECTIONCANON TOKEN LAYER — same values as BLACK/IVORY/TEAL/
+// AMBER/PINK/SURFACE/BORDER/MUTED above, additive names only. Per
+// docs/DESIGN_SYSTEM.md, the authenticated product UI is migrated
+// incrementally — existing call sites keep using the names above
+// unchanged; new code (src/pages/election/primitives.jsx and beyond)
+// should prefer these semantic names. AMBER stays "statusPending", never
+// "accent", since it is a functional honesty signal (simulation/pending),
+// not a brand color (see DemoTag below and DESIGN_SYSTEM.md).
+export const ELECTIONCANON = Object.freeze({
+  canvas: BLACK, surface: SURFACE, border: BORDER,
+  ink: IVORY, mutedInk: MUTED,
+  accentPrimary: TEAL, accentSecondary: PINK, statusPending: AMBER,
+});
 
 // THE SINGLE SOURCE OF TRUTH for "what's real today" copy — read by the
 // authenticated first-run Welcome screen (Election.jsx's WelcomeOnboarding)
@@ -71,17 +88,32 @@ export function parseCampaignTitle(rawName) {
   return { name: rest.trim() || text, electionType: electionType.trim() || null };
 }
 
+// LABELS ONLY — ids are unchanged and are what Election.jsx's own
+// `section === "..."` conditionals and goToSection() calls key off of
+// (see test/election-workspace-creation-ux.consumer.mjs and
+// test/election-home-operating-console.consumer.mjs, which regex those
+// exact id strings). Labels below move toward the target information
+// architecture from the UX audit without touching routing/section state
+// or removing/renaming any section.
+// `label` is UNCHANGED — the real English string, same as before this
+// pass, still what renders when no translation layer is involved (e.g.
+// any call site that hasn't been updated yet degrades to this, never to
+// a blank tab). `labelKey` is ADDITIVE: the one place a six-language
+// consumer (primitives.jsx's PrimaryNav) looks up the session-language
+// string via uiStrings.js's t(), so there is exactly one navigation
+// translation system, not 11 scattered ones.
 export const SECTIONS = Object.freeze([
-  { id: "home", label: "Home" },
-  { id: "territory", label: "Territory" },
-  { id: "organisation", label: "Organisation" },
-  { id: "readiness", label: "Readiness" },
-  { id: "mobilize", label: "Mobilize" },
-  { id: "chat", label: "Chat" },
-  { id: "studio", label: "Campaign Studio" },
-  { id: "election-day", label: "Election Day" },
-  { id: "intelligence", label: "Intelligence" },
-  { id: "settings", label: "Settings" },
+  { id: "home", label: "Overview", labelKey: "nav.home" },
+  { id: "organisation", label: "People", labelKey: "nav.organisation" },
+  { id: "territory", label: "Places", labelKey: "nav.territory" },
+  { id: "mobilize", label: "Work", labelKey: "nav.mobilize" },
+  { id: "election-day", label: "Election Operations", labelKey: "nav.electionDay" },
+  { id: "chat", label: "Coordination", labelKey: "nav.chat" },
+  { id: "studio", label: "Studio", labelKey: "nav.studio" },
+  { id: "intelligence", label: "Ask ElectionCanon", labelKey: "nav.intelligence" },
+  { id: "canon", label: "Canon", labelKey: "nav.canon" },
+  { id: "readiness", label: "Readiness", labelKey: "nav.readiness" },
+  { id: "settings", label: "System", labelKey: "nav.settings" },
 ]);
 
 /** Never surface a raw Postgres/PostgREST error to a first-time user. Display
@@ -153,7 +185,7 @@ export function Label({ children }) {
 
 export function Panel({ children, accent = TEAL, style = {} }) {
   return (
-    <div style={{ clipPath: FORGE_CLIPS.panelBR, background: SURFACE,
+    <div style={{ clipPath: CLIP_PATHS.panelBR, background: SURFACE,
       borderTop: `2px solid ${accent}`, padding: "20px 22px", ...style }}>{children}</div>
   );
 }
@@ -166,7 +198,7 @@ export function StatusChip({ status, color, statusColor = {} }) {
   return (
     <span style={{ fontFamily: UI, fontWeight: 700, fontSize: 10, letterSpacing: "0.14em",
       textTransform: "uppercase", color: c, border: `1px solid ${c}`,
-      padding: "4px 9px", clipPath: FORGE_CLIPS.buttonSm }}>{status}</span>
+      padding: "4px 9px", clipPath: CLIP_PATHS.buttonSm }}>{status}</span>
   );
 }
 
@@ -214,14 +246,14 @@ export function DemoTag({ label = "Demonstration data — not official election 
   return (
     <span style={{ fontFamily: UI, fontWeight: 800, fontSize: 9.5, letterSpacing: "0.14em",
       textTransform: "uppercase", color: BLACK, background: AMBER, padding: "3px 8px",
-      clipPath: FORGE_CLIPS.buttonSm }}>{label}</span>
+      clipPath: CLIP_PATHS.buttonSm }}>{label}</span>
   );
 }
 
 export function btnStyle(accent) {
   return { fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.1em",
     padding: "10px 16px", border: "none", background: accent, color: BLACK,
-    cursor: "pointer", clipPath: FORGE_CLIPS.buttonSm };
+    cursor: "pointer", clipPath: CLIP_PATHS.buttonSm };
 }
 export function linkBtn() {
   return { fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.08em",
@@ -230,7 +262,14 @@ export function linkBtn() {
 export const inputStyle = { width: "100%", boxSizing: "border-box", fontFamily: UI, fontSize: 13,
   padding: "11px 13px", background: BLACK, color: IVORY, border: `1px solid ${BORDER}`, outline: "none", marginBottom: 9 };
 
-export function ForgeHeader({ section, onSection, campaignName, onSignOut, showNav = true }) {
+// UX REDESIGN SLICE 7 — renamed from ForgeHeader. This is ElectionCanon's
+// own product shell header (workspace title, sign-out, ContextBar,
+// PrimaryNav) — not shared with any other Forge product, renders zero
+// "Forge" text, and has exactly two call sites (Election.jsx). Classified
+// RENAME SAFELY in Slice 7's naming audit.
+export function AppHeader({ section, onSection, campaignName, onSignOut, showNav = true,
+  actorKindLabel = null, membershipRole = null }) {
+  const { t } = useTranslation();
   return (
     <div style={{ marginBottom: 26 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start",
@@ -244,28 +283,23 @@ export function ForgeHeader({ section, onSection, campaignName, onSignOut, showN
             {campaignName || "Prepare. Organize. Coordinate. Observe. Respond."}
           </h1>
         </div>
-        {onSignOut && (
-          <button onClick={onSignOut} style={{ fontFamily: UI, fontWeight: 700, fontSize: 10.5,
-            letterSpacing: "0.12em", textTransform: "uppercase", padding: "9px 16px",
-            background: "transparent", color: MUTED, border: `1px solid ${BORDER}`,
-            cursor: "pointer", clipPath: FORGE_CLIPS.buttonSm }}>Sign out</button>
-        )}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 14, flexWrap: "wrap" }}>
+          <LanguageSelector />
+          {onSignOut && (
+            <button onClick={onSignOut} style={{ fontFamily: UI, fontWeight: 700, fontSize: 10.5,
+              letterSpacing: "0.12em", textTransform: "uppercase", padding: "9px 16px",
+              background: "transparent", color: MUTED, border: `1px solid ${BORDER}`,
+              cursor: "pointer", clipPath: CLIP_PATHS.buttonSm, alignSelf: "flex-end" }}>{t("action.signOut")}</button>
+          )}
+        </div>
       </div>
       {showNav && (
-      <nav style={{ display: "flex", gap: 6, flexWrap: "wrap", borderBottom: `1px solid ${BORDER}`,
-        paddingBottom: 2 }}>
-        {SECTIONS.map((s) => {
-          const active = s.id === section;
-          return (
-            <button key={s.id} onClick={() => onSection(s.id)}
-              style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.08em",
-                padding: "10px 16px", cursor: "pointer", border: "none", borderBottom: `2px solid ${active ? TEAL : "transparent"}`,
-                background: "transparent", color: active ? IVORY : MUTED }}>
-              {s.label}
-            </button>
-          );
-        })}
-      </nav>
+        <>
+          <ContextBar actorKindLabel={actorKindLabel} membershipRole={membershipRole} />
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <PrimaryNav sections={SECTIONS} activeId={section} onSelect={onSection} />
+          </div>
+        </>
       )}
     </div>
   );
@@ -285,6 +319,7 @@ export function ForgeHeader({ section, onSection, campaignName, onSignOut, showN
 // proposeChangeIncidentStatus's escalation-target validation). Every
 // existing caller omits it and behaves exactly as before.
 export function StructuredWritePanel({ title, operation, fields, prepareFn, approveFn, campaignId, refresh, accent = TEAL, extraArgs = {} }) {
+  const { t } = useTranslation();
   const initial = Object.fromEntries(fields.map((f) => [f.id, f.type === "select" ? (f.options?.[0]?.value ?? "") : ""]));
   const [values, setValues] = useState(initial);
   const [prepared, setPrepared] = useState(null);
@@ -340,14 +375,14 @@ export function StructuredWritePanel({ title, operation, fields, prepareFn, appr
             style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.14em",
               textTransform: "uppercase", padding: "11px 18px", border: "none",
               background: busy ? BORDER : accent, color: BLACK,
-              cursor: busy ? "not-allowed" : "pointer", clipPath: FORGE_CLIPS.button, marginTop: 4 }}>
-            {busy ? "Preparing…" : "Prepare"}
+              cursor: busy ? "not-allowed" : "pointer", clipPath: CLIP_PATHS.button, marginTop: 4 }}>
+            {busy ? t("action.preparing") : t("action.prepare")}
           </button>
         </>
       ) : (
         <>
           <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 10, letterSpacing: "0.14em",
-            textTransform: "uppercase", color: AMBER, marginBottom: 6 }}>Proposed action — not yet recorded</div>
+            textTransform: "uppercase", color: AMBER, marginBottom: 6 }}>{t("status.proposedNotRecorded")}</div>
           <div style={{ fontFamily: UI, fontSize: 13, color: IVORY, marginBottom: 6 }}>{prepared.draft.summary}</div>
           <div style={{ fontFamily: UI, fontSize: 11, color: MUTED, marginBottom: 14 }}>{prepared.draft.notice}</div>
           <div style={{ display: "flex", gap: 10 }}>
@@ -355,14 +390,14 @@ export function StructuredWritePanel({ title, operation, fields, prepareFn, appr
               style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.14em",
                 textTransform: "uppercase", padding: "11px 18px", border: "none",
                 background: busy ? BORDER : accent, color: BLACK,
-                cursor: busy ? "not-allowed" : "pointer", clipPath: FORGE_CLIPS.button }}>
-              {busy ? "Recording…" : "Approve"}
+                cursor: busy ? "not-allowed" : "pointer", clipPath: CLIP_PATHS.button }}>
+              {busy ? t("action.recording") : t("action.approve")}
             </button>
             <button onClick={() => setPrepared(null)} disabled={busy}
               style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.14em",
                 textTransform: "uppercase", padding: "11px 18px", cursor: "pointer",
                 background: "transparent", color: MUTED, border: `1px solid ${BORDER}`,
-                clipPath: FORGE_CLIPS.button }}>Cancel</button>
+                clipPath: CLIP_PATHS.button }}>{t("action.cancel")}</button>
           </div>
         </>
       )}
@@ -372,6 +407,7 @@ export function StructuredWritePanel({ title, operation, fields, prepareFn, appr
 }
 
 export function WriteActionPanel({ campaignId, refresh }) {
+  const { t } = useTranslation();
   const [message, setMessage] = useState("");
   const [prepared, setPrepared] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -404,11 +440,11 @@ export function WriteActionPanel({ campaignId, refresh }) {
   return (
     <Panel accent={TEAL}>
       <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.14em",
-        textTransform: "uppercase", color: TEAL, marginBottom: 10 }}>Record a campaign action</div>
+        textTransform: "uppercase", color: TEAL, marginBottom: 10 }}>{t("ask.recordActionHeading")}</div>
       {!prepared ? (
         <>
           <input value={message} onChange={(e) => setMessage(e.target.value)}
-            placeholder='e.g. "Assign Team 6 to Ward 6" or "Report Ward 6 as on-track"' aria-label="Action"
+            placeholder={t("ask.recordActionPlaceholder")} aria-label="Action"
             style={{ width: "100%", boxSizing: "border-box", fontFamily: UI, fontSize: 13,
               padding: "11px 13px", background: BLACK, color: IVORY,
               border: `1px solid ${BORDER}`, outline: "none", marginBottom: 9 }} />
@@ -416,14 +452,14 @@ export function WriteActionPanel({ campaignId, refresh }) {
             style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.14em",
               textTransform: "uppercase", padding: "11px 18px", border: "none",
               background: busy || !message.trim() ? BORDER : TEAL, color: BLACK,
-              cursor: busy || !message.trim() ? "not-allowed" : "pointer", clipPath: FORGE_CLIPS.button }}>
-            {busy ? "Preparing…" : "Prepare"}
+              cursor: busy || !message.trim() ? "not-allowed" : "pointer", clipPath: CLIP_PATHS.button }}>
+            {busy ? t("action.preparing") : t("action.prepare")}
           </button>
         </>
       ) : (
         <>
           <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 10, letterSpacing: "0.14em",
-            textTransform: "uppercase", color: AMBER, marginBottom: 6 }}>Proposed action — not yet recorded</div>
+            textTransform: "uppercase", color: AMBER, marginBottom: 6 }}>{t("status.proposedNotRecorded")}</div>
           <div style={{ fontFamily: UI, fontSize: 13, color: IVORY, marginBottom: 6 }}>
             {prepared.draft.summary}
           </div>
@@ -435,14 +471,14 @@ export function WriteActionPanel({ campaignId, refresh }) {
               style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.14em",
                 textTransform: "uppercase", padding: "11px 18px", border: "none",
                 background: busy ? BORDER : TEAL, color: BLACK,
-                cursor: busy ? "not-allowed" : "pointer", clipPath: FORGE_CLIPS.button }}>
-              {busy ? "Recording…" : "Approve"}
+                cursor: busy ? "not-allowed" : "pointer", clipPath: CLIP_PATHS.button }}>
+              {busy ? t("action.recording") : t("action.approve")}
             </button>
             <button onClick={() => setPrepared(null)} disabled={busy}
               style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.14em",
                 textTransform: "uppercase", padding: "11px 18px", cursor: "pointer",
                 background: "transparent", color: MUTED, border: `1px solid ${BORDER}`,
-                clipPath: FORGE_CLIPS.button }}>Cancel</button>
+                clipPath: CLIP_PATHS.button }}>{t("action.cancel")}</button>
           </div>
         </>
       )}

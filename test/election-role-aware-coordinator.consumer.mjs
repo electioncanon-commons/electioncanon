@@ -116,9 +116,11 @@ console.log("\n3b — LOOP 3 HARDENING: HOME ROLE-AMBIGUITY RESOLVED (owner/mana
   ok("4. the early return is placed AFTER every hook in this component (React's own rule) — specifically after the LAST useState call (reassignTarget), never between hooks",
      home.indexOf('const [reassignTarget, setReassignTarget] = useState(null);') < home.indexOf('if (roleResolved && hasNoActiveResponsibility)')
      && !/useState\(/.test(home.slice(home.indexOf('if (roleResolved && hasNoActiveResponsibility)'))));
-  ok("5. the honest empty state names the real recovery path (contact the owner / Organisation / Territory) — never fabricates a geography or auto-assigns a fallback responsibility",
-     /No active responsibility was found for this account\./.test(home)
-     && /Contact your campaign owner if you believe this is a mistake/.test(home)
+  ok("5. the honest empty state names the real recovery path (contact the owner / Organisation / Territory) — never fabricates a geography or auto-assigns a fallback responsibility (VISIBILITY EXPANSION PASS — this copy now lives in uiStrings.js's home.noActiveResponsibilityBody1/2 keys, rendered via t(), not a literal in HomeSection.jsx; re-verified against the actual English source below)",
+     /t\(\s*["']home\.noActiveResponsibilityBody1["']\s*\)/.test(home)
+     && /t\(\s*["']home\.noActiveResponsibilityBody2["']\s*\)/.test(home)
+     && /"home\.noActiveResponsibilityBody1":\s*"No active responsibility was found for this account\."/.test(code("../src/pages/election/uiStrings.js"))
+     && /"home\.noActiveResponsibilityBody2":\s*"Contact your campaign owner if you believe this is a mistake/.test(code("../src/pages/election/uiStrings.js"))
      && !/setMyResponsibility\(/.test(home)); // no client-side write/fabrication of responsibility state exists anywhere in this file
   ok("6. owner/manager still reach the FULL campaign-wide render — the ambiguity branch's own condition explicitly excludes them (isOwnerOrManager checked first)",
      home.indexOf('const isOwnerOrManager = myMemberRole === "owner" || myMemberRole === "manager";') < home.indexOf('const hasNoActiveResponsibility'));
@@ -126,8 +128,11 @@ console.log("\n3b — LOOP 3 HARDENING: HOME ROLE-AMBIGUITY RESOLVED (owner/mana
 
 console.log("\n3c — LOOP 5 HARDENING: 'WHAT CHANGED' NO LONGER LEAKS CAMPAIGN-WIDE ACTIVITY TO A SCOPED COORDINATOR");
 {
+  // PHASE 2 UI-STRING WIRING — the literal headings are now
+  // t("home.whatChanged") / t("home.whatNeedsAttention") (see uiStrings.js,
+  // English values unchanged) — match the translation-key call sites.
   ok("1. owner/manager/Constituency Lead still see 'What changed' — it renders inside the SAME !isScoped gate as the pre-existing 'What needs attention today' panel, not removed or replaced",
-     /\{!isScoped && \(\s*<div style=\{\{ gridColumn: "1 \/ -1" \}\}>\s*<Label>What changed<\/Label>/.test(home));
+     /\{!isScoped && \(\s*<div style=\{\{ gridColumn: "1 \/ -1" \}\}>\s*<Label>\{t\("home\.whatChanged"\)\}<\/Label>/.test(home));
   ok("2. a scoped coordinator/agent (isScoped === true) cannot reach this block — the campaign-wide recentChanges feed is gated OUT for them, mirroring the attention panel's own !isScoped gate one section above",
      (home.match(/\{!isScoped && \(/g) ?? []).length >= 2); // attention panel + What-changed panel, both real occurrences of the same gate
   ok("3. recentChanges' own text-building NEVER interpolates a raw geography/person ref directly — every entry resolves through nameForGeography()/nameForPersonRef() (real names), so even the campaign-wide feed itself carries no bare geography/person IDs",
@@ -138,8 +143,8 @@ console.log("\n3c — LOOP 5 HARDENING: 'WHAT CHANGED' NO LONGER LEAKS CAMPAIGN-
      && !/text: `\$\{[^`]*\}\$\{slot\.geographyRef\}/.test(home)
      && !/text: `\$\{[^`]*\}\$\{slot\.person\}/.test(home));
   ok("4. the pre-existing 'What needs attention today' scoped gate is untouched by this pass — still exactly !isScoped, still positioned before this fix's own gate",
-     /\{!isScoped && \(\s*<div style=\{\{ gridColumn: "1 \/ -1" \}\}>\s*<Label>What needs attention today<\/Label>/.test(home)
-     && home.indexOf("What needs attention today") < home.indexOf("What changed"));
+     /\{!isScoped && \(\s*<div style=\{\{ gridColumn: "1 \/ -1" \}\}>\s*<Label>\{t\("home\.whatNeedsAttention"\)\}<\/Label>/.test(home)
+     && home.indexOf('t("home.whatNeedsAttention")') < home.indexOf('t("home.whatChanged")'));
   ok("5. no new isScoped-style flag was introduced for this fix — the SAME isScopedResponsibility()-derived flag from responsibility.js gates both panels, no second scope model",
      (home.match(/const isScoped = isScopedResponsibility\(myResponsibility\);/g) ?? []).length === 1);
 }

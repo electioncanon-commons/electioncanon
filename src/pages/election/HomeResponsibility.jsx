@@ -26,6 +26,7 @@ import { supabase } from "../../lib/supabase.js";
 import { prepareGeographyWrite, approveGeographyWrite, GEOGRAPHY_OPERATION } from "../../os/electionWebAdapter.js";
 import { getReassignmentCandidates } from "./OrganisationSection.jsx";
 import { Label, Panel, linkBtn, friendlyError, UI, IVORY, MUTED, TEAL, AMBER, PINK, BLACK, BORDER, inputStyle } from "./shared.jsx";
+import { useTranslation } from "./useTranslation.js";
 
 const ROLE_LABEL = Object.freeze({ lga: "LGA Coordinator", ward: "Ward Coordinator", polling_unit: "Polling-Unit Agent" });
 const LEVEL_LABEL = Object.freeze({ lga: "LGA", ward: "Ward", polling_unit: "Polling Unit" });
@@ -33,10 +34,11 @@ const LEVEL_LABEL = Object.freeze({ lga: "LGA", ward: "Ward", polling_unit: "Pol
 /** Constituency/LGA/ward covered counts — the exact numbers
  *  getUncoveredTerritory() already computed, nothing derived twice. */
 export function CoverageCard({ coverage, onOpenGaps }) {
+  const { t } = useTranslation();
   if (!coverage.established) {
     return (
       <div>
-        <Label>Coverage</Label>
+        <Label>{t("coverage.heading")}</Label>
         <Panel accent={PINK}>
           <div style={{ fontFamily: UI, fontSize: 12.5, color: IVORY, lineHeight: 1.6 }}>
             Set your Territory before ElectionCanon can show coverage.
@@ -53,7 +55,7 @@ export function CoverageCard({ coverage, onOpenGaps }) {
 
   return (
     <div>
-      <Label>Coverage</Label>
+      <Label>{t("coverage.heading")}</Label>
       <Panel accent={anyGap ? AMBER : TEAL}>
         <div style={{ fontFamily: UI, fontSize: 13, color: IVORY, lineHeight: 2 }}>
           Constituency: <span style={{ color: TEAL }}>covered by the campaign owner</span><br />
@@ -77,13 +79,14 @@ const smallBtn = (color) => ({ fontFamily: UI, fontWeight: 700, fontSize: 10.5, 
  *  Data Architecture Rule this design gate imposed. Flex rows, not a wide
  *  table — mobile-first per the task's own UX rule. */
 export function CoverageGapsPanel({ coverage, lgaNameById, parentName, onInvite, onReassign }) {
+  const { t } = useTranslation();
   const rows = [
     ...coverage.lgas.map((l) => ({ id: l.id, name: l.name, level: "lga", parent: parentName, lgaId: null, covered: l.covered, currentPerson: l.currentPerson })),
     ...coverage.wards.map((w) => ({ id: w.id, name: w.name, level: "ward", parent: lgaNameById.get(w.lgaId) ?? "—", lgaId: w.lgaId ?? null, covered: w.covered, currentPerson: w.currentPerson })),
   ];
 
   if (rows.length === 0) {
-    return <Panel><div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>No LGAs or wards known for this campaign's territory yet.</div></Panel>;
+    return <Panel><div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>{t("territory.noLgasWardsYet")}</div></Panel>;
   }
 
   return (
@@ -125,6 +128,7 @@ export function CoverageGapsPanel({ coverage, lgaNameById, parentName, onInvite,
  *  is the real compare-and-swap guard the server already enforces; this UI
  *  supplies it, it does not invent a new one. */
 export function ReassignResponsibilityPanel({ campaignId, userId, view, level, geographyRef, geographyName, currentPersonRef, geographyTree, refresh, onClose }) {
+  const { t } = useTranslation();
   const [allMembers, setAllMembers] = useState(null); // null = loading
   const [newPersonId, setNewPersonId] = useState("");
   const [reason, setReason] = useState("");
@@ -188,17 +192,17 @@ export function ReassignResponsibilityPanel({ campaignId, userId, view, level, g
 
       {!prepared ? (
         <>
-          <div style={{ fontFamily: UI, fontSize: 10, color: MUTED, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.06em" }}>New responsible person</div>
-          <select value={newPersonId} onChange={(e) => setNewPersonId(e.target.value)} aria-label="New responsible person" disabled={allMembers === null} style={inputStyle}>
+          <div style={{ fontFamily: UI, fontSize: 10, color: MUTED, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("responsibility.newPerson")}</div>
+          <select value={newPersonId} onChange={(e) => setNewPersonId(e.target.value)} aria-label={t("responsibility.newPerson")} disabled={allMembers === null} style={inputStyle}>
             <option value="">{allMembers === null ? "Loading…" : "Select a person…"}</option>
             {candidates.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
           {allMembers !== null && candidates.length === 0 && (
             <div style={{ fontFamily: UI, fontSize: 12, color: MUTED, marginBottom: 9 }}>No other active campaign members are available yet — invite someone under Organisation first.</div>
           )}
-          <div style={{ fontFamily: UI, fontSize: 10, color: MUTED, marginBottom: 4, marginTop: 9, textTransform: "uppercase", letterSpacing: "0.06em" }}>Reason</div>
-          <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. Relocated, stepped back, better fit for this ward"
-            aria-label="Reason" style={inputStyle} />
+          <div style={{ fontFamily: UI, fontSize: 10, color: MUTED, marginBottom: 4, marginTop: 9, textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("common.reason")}</div>
+          <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t("responsibility.reasonPlaceholder")}
+            aria-label={t("common.reason")} style={inputStyle} />
           <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
             <button onClick={doPrepare} disabled={busy || !newPersonId || !reason.trim()}
               style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", padding: "11px 18px", border: "none",
@@ -213,7 +217,7 @@ export function ReassignResponsibilityPanel({ campaignId, userId, view, level, g
         </>
       ) : (
         <>
-          <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: TEAL, marginBottom: 8 }}>Confirm</div>
+          <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: TEAL, marginBottom: 8 }}>{t("action.confirmHeading")}</div>
           <div style={{ fontFamily: UI, fontSize: 13, color: IVORY, lineHeight: 1.7, marginBottom: 16 }}>
             This will reassign {roleLabel} for <strong>{geographyName}</strong> from <strong>{currentPersonName}</strong> to <strong>{newPersonName}</strong>.
             This will be recorded in the campaign Canon.
@@ -226,7 +230,7 @@ export function ReassignResponsibilityPanel({ campaignId, userId, view, level, g
             </button>
             <button onClick={() => setPrepared(null)} disabled={busy}
               style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", padding: "11px 18px",
-                cursor: "pointer", background: "transparent", color: MUTED, border: `1px solid ${BORDER}` }}>Back</button>
+                cursor: "pointer", background: "transparent", color: MUTED, border: `1px solid ${BORDER}` }}>{t("action.back")}</button>
           </div>
         </>
       )}
@@ -294,8 +298,9 @@ export function ScopedWardsPanel({ wards, pollingUnitCounts = {}, onInvite, onRe
 /** A Ward Coordinator's own polling units — code/name, agent status,
  *  covered/uncovered, same action pattern as ScopedWardsPanel. */
 export function ScopedPollingUnitsPanel({ pollingUnits, onInvite, onReassign }) {
+  const { t } = useTranslation();
   if (pollingUnits.length === 0) {
-    return <Panel><div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>No polling units imported yet for this ward.</div></Panel>;
+    return <Panel><div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>{t("territory.noPuImportedWard")}</div></Panel>;
   }
   return (
     <Panel>

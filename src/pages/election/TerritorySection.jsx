@@ -1,5 +1,5 @@
 // ============================================================
-// ELECTION FORGE — TERRITORY  (Electoral Geography)
+// ELECTIONCANON — TERRITORY  (Electoral Geography)
 //
 // TERRITORY.SET requires a campaign_id, so — unlike the free-text
 // WelcomeOnboarding signup wizard in Election.jsx — this lives in its own
@@ -17,6 +17,7 @@ import { prepareGeographyWrite, approveGeographyWrite, GEOGRAPHY_OPERATION } fro
 import { resolveMyResponsibility, isScopedResponsibility } from "../../domains/election/responsibility.js";
 import { Label, Panel, friendlyError, UI, IVORY, TEAL, AMBER, PINK, MUTED, BORDER, BLACK, inputStyle } from "./shared.jsx";
 import TerritoryExplorer from "./TerritoryExplorer.jsx";
+import { useTranslation } from "./useTranslation.js";
 
 const GEOGRAPHY_LOOKUP = Object.freeze({
   lga: { table: "geography_lgas", select: "id, name" },
@@ -34,6 +35,7 @@ const GEOGRAPHY_LOOKUP = Object.freeze({
  *  resolved (from the canonical Canon, never a URL/query param) — this
  *  component only decides HOW to fetch and render it. */
 function ScopedTerritory({ responsibility, campaignId }) {
+  const { t } = useTranslation();
   const { responsibilityRole, geographyRef } = responsibility;
   const [geographyName, setGeographyName] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -110,7 +112,7 @@ function ScopedTerritory({ responsibility, campaignId }) {
 
   return (
     <div>
-      <Label>Your assigned territory</Label>
+      <Label>{t("territory.yourAssigned")}</Label>
       <Panel accent={TEAL}>
         <div style={{ fontFamily: UI, fontWeight: 800, fontSize: 16, color: IVORY, marginBottom: 4 }}>
           {geographyName ?? "Your polling unit"}
@@ -124,7 +126,7 @@ function ScopedTerritory({ responsibility, campaignId }) {
         <div style={{ marginTop: 18 }}>
           <Label>Wards ({wards.length})</Label>
           {wards.length === 0 ? (
-            <Panel><div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>No wards imported yet for this LGA.</div></Panel>
+            <Panel><div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>{t("territory.noWardsImported")}</div></Panel>
           ) : (
             <Panel>
               {wards.map((w) => {
@@ -132,8 +134,12 @@ function ScopedTerritory({ responsibility, campaignId }) {
                 const pus = pollingUnitsByWard[w.id];
                 return (
                   <div key={w.id} style={{ borderBottom: `1px solid ${BORDER}`, padding: "12px 0" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, cursor: "pointer" }}
-                      onClick={() => toggleWard(w.id)}>
+                    {/* UX REDESIGN SLICE 3 — real <button>, not a clickable
+                        <div>, so this expand/collapse is keyboard-reachable.
+                        Same toggleWard(...) call, same layout. */}
+                    <button type="button" onClick={() => toggleWard(w.id)} aria-expanded={expanded}
+                      style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12,
+                        width: "100%", textAlign: "left", background: "none", border: "none", padding: 0, font: "inherit", cursor: "pointer" }}>
                       <div>
                         <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 13, color: IVORY }}>{expanded ? "▾" : "▸"} {w.name}</div>
                         <div style={{ fontFamily: UI, fontSize: 11, color: MUTED, marginTop: 2 }}>
@@ -141,16 +147,16 @@ function ScopedTerritory({ responsibility, campaignId }) {
                         </div>
                       </div>
                       <span style={{ fontFamily: UI, fontWeight: 700, fontSize: 9.5, letterSpacing: "0.1em", textTransform: "uppercase",
-                        color: w.covered ? TEAL : PINK, border: `1px solid ${w.covered ? TEAL : PINK}`, padding: "3px 8px" }}>
+                        color: w.covered ? TEAL : PINK, border: `1px solid ${w.covered ? TEAL : PINK}`, padding: "3px 8px", flexShrink: 0 }}>
                         {w.covered ? "Covered" : "Not covered"}
                       </span>
-                    </div>
+                    </button>
                     {expanded && (
                       <div style={{ marginLeft: 20, marginTop: 10 }}>
                         {pollingUnitsLoading === w.id ? (
                           <div style={{ fontFamily: UI, fontSize: 11, color: MUTED }}>Loading polling units…</div>
                         ) : !pus || pus.length === 0 ? (
-                          <div style={{ fontFamily: UI, fontSize: 11, color: MUTED }}>No polling units imported yet for this ward.</div>
+                          <div style={{ fontFamily: UI, fontSize: 11, color: MUTED }}>{t("territory.noPuImportedWard")}</div>
                         ) : (
                           pus.map((pu) => (
                             <div key={pu.id} style={{ fontFamily: UI, fontSize: 11, color: MUTED, marginBottom: 4 }}>
@@ -172,7 +178,7 @@ function ScopedTerritory({ responsibility, campaignId }) {
         <div style={{ marginTop: 18 }}>
           <Label>Polling units ({pollingUnits.length})</Label>
           {pollingUnits.length === 0 ? (
-            <Panel><div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>No polling units imported yet for this ward.</div></Panel>
+            <Panel><div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>{t("territory.noPuImportedWard")}</div></Panel>
           ) : (
             <Panel>
               {pollingUnits.map((pu) => (
@@ -193,6 +199,7 @@ function ScopedTerritory({ responsibility, campaignId }) {
 }
 
 function TerritoryWizard({ campaignId, refresh, offices, states }) {
+  const { t } = useTranslation();
   const [election, setElection] = useState("");
   const [officeId, setOfficeId] = useState("");
   const [stateCode, setStateCode] = useState("");
@@ -244,7 +251,7 @@ function TerritoryWizard({ campaignId, refresh, offices, states }) {
 
   return (
     <div>
-      <Label>Set your electoral territory</Label>
+      <Label>{t("territory.setYours")}</Label>
       <Panel>
         {!prepared ? (
           <>
@@ -256,20 +263,20 @@ function TerritoryWizard({ campaignId, refresh, offices, states }) {
               state are set, ElectionCanon reveals your territory — state, LGA, ward and polling unit.
             </div>
             <input value={election} onChange={(e) => setElection(e.target.value)}
-              placeholder="e.g. 2027 General Election" aria-label="Election" style={inputStyle} />
+              placeholder={t("territory.electionPlaceholder")} aria-label="Election" style={inputStyle} />
             <select value={officeId} onChange={(e) => { setOfficeId(e.target.value); setStateCode(""); }}
-              aria-label="Office" style={inputStyle}>
+              aria-label={t("territory.office")} style={inputStyle}>
               <option value="">Select an office…</option>
               {offices.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
             </select>
             <select value={stateCode} onChange={(e) => setStateCode(e.target.value)}
-              aria-label="State" style={inputStyle} disabled={!officeId}>
+              aria-label={t("territory.state")} style={inputStyle} disabled={!officeId}>
               <option value="">Select a state…</option>
               {states.map((s) => <option key={s.code} value={s.code}>{s.name}</option>)}
             </select>
             {needsConstituency && (
               <select value={constituencyId} onChange={(e) => setConstituencyId(e.target.value)}
-                aria-label="Constituency" style={inputStyle} disabled={!stateCode}>
+                aria-label={t("territory.constituency")} style={inputStyle} disabled={!stateCode}>
                 <option value="">
                   {!stateCode ? "Select a state first…"
                     : constituencies.length ? "Select a constituency…"

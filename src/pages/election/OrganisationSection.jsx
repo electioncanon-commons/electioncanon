@@ -1,5 +1,5 @@
 // ============================================================
-// ELECTION FORGE — ORGANISATION  (Campaign invitations + roster)
+// ELECTIONCANON — ORGANISATION  (Campaign invitations + roster)
 //
 // Who is in this campaign, what role they hold, what territory they're
 // responsible for, and a 4-step flow to invite someone new. Geography
@@ -8,6 +8,26 @@
 // no geography ever shown that doesn't exist in the real tables (an empty
 // ward/PU list renders the same honest "not imported yet" message Territory
 // already established, never a placeholder).
+//
+// ROLE_SCOPE_03 — PEOPLE STAYS CAMPAIGN-WIDE. DELIBERATE, not an
+// oversight. This page answers "who belongs to this campaign" (real,
+// sign-in-capable `campaign_members`, plus pending `campaign_invitations`)
+// — a membership/organisational fact, not a territorial-operational one.
+// Every member here already passed the SAME campaign_members RLS check
+// (any active member reads the whole roster) regardless of their own
+// responsibility scope, and knowing who else is on the team — even outside
+// one's own LGA — is normal for an organisation roster (compare: an
+// employee directory isn't filtered to your own department). What DOES
+// carry real operational/territorial sensitivity is handled per-surface
+// instead: Work (MobilizeSection.jsx's PeopleTab) scopes the field-roster
+// population by responsibility geography, Election Operations
+// (ElectionDaySection.jsx) scopes polling-unit/result/incident data, and
+// Ask (IntelligenceSection.jsx) scopes its grounding — see each file's own
+// ROLE_SCOPE_03 comment. This roster itself shows only membership facts
+// (name, role, their OWN responsibility/territory) — never another
+// member's operational data (their field-roster entries, assignments,
+// tasks), so leaving it campaign-wide does not re-open the leaks those
+// other fixes closed.
 // ============================================================
 
 import { useState, useEffect, useRef } from "react";
@@ -18,11 +38,21 @@ import { createInvitation, revokeInvitation } from "../../domains/election/invit
 import { listInvitations } from "../../domains/election/invitations/read.js";
 import { resolveMyResponsibility, isScopedResponsibility } from "../../domains/election/responsibility.js";
 import * as commsApi from "../../domains/election/communications/api.js";
-import { Label, Panel, friendlyError, UI, IVORY, TEAL, AMBER, PINK, MUTED, BORDER, BLACK, inputStyle } from "./shared.jsx";
+import { Label, Panel, friendlyError, linkBtn, UI, IVORY, TEAL, AMBER, PINK, MUTED, BORDER, BLACK, inputStyle } from "./shared.jsx";
+import { ContextualAsk } from "./AskAssistant.jsx";
+import { useTranslation } from "./useTranslation.js";
+
+// UX REDESIGN SLICE 5 — real, already-answerable example prompt (see
+// IntelligenceSection.jsx's own advertised examples / AskAssistant.jsx).
+const PEOPLE_PROMPTS = Object.freeze(["Who is responsible for Ward 3?"]);
 
 const RESPONSIBILITY_ROLE_LABEL = Object.freeze({
   CONSTITUENCY_LEAD: "Constituency Lead", LGA_COORDINATOR: "LGA Coordinator",
   WARD_COORDINATOR: "Ward Coordinator", POLLING_UNIT_AGENT: "Polling-Unit Agent",
+});
+const RESPONSIBILITY_ROLE_LABEL_KEY = Object.freeze({
+  CONSTITUENCY_LEAD: "role.constituencyLead", LGA_COORDINATOR: "role.lgaCoordinator",
+  WARD_COORDINATOR: "role.wardCoordinator", POLLING_UNIT_AGENT: "role.puAgent",
 });
 
 const STATUS_COLOR = Object.freeze({ pending: AMBER, accepted: TEAL, expired: MUTED, revoked: PINK });
@@ -43,13 +73,34 @@ const STATUS_COLOR = Object.freeze({ pending: AMBER, accepted: TEAL, expired: MU
 // same way rather than re-deriving identity. `members`/`invitations`/
 // `myIdentity`/`view` are passed in, never re-fetched here — this function
 // does no I/O of its own, matching every other pure resolver in this repo.
-export function resolveMemberDisplayName({ uid, campaignId, userId, myIdentity, view, invitations }) {
+// ROLE_SCOPE_03 — CANONICAL IDENTITY RESOLUTION. This function is now the
+// ONE place any surface resolves "whose name is this person reference"
+// (People's own roster below, and EventsSection.jsx's Canon descriptions —
+// see that file's own import). It previously covered only an invite-based
+// accepted member (`invite:${campaignId}:${uid}`) or the viewer's own self,
+// falling through to a flat "Campaign member" for anyone else — which
+// silently mislabeled TWO real, resolvable cases: (1) a Mobilize field-
+// roster person (`view.people[uid]` keyed by their raw roster id, not an
+// invite ref — added here as `rosterName`), and (2) the campaign OWNER
+// viewed by anyone but themselves, who holds no invite/roster/self match at
+// all since they never went through the invite-accept flow. `members` (the
+// optional `campaign_members` rows, same shape OrganisationSection.jsx's own
+// roster already has) lets that owner/manager case resolve to a real ROLE
+// label instead of the generic fallback — mirrors this file's own roleFor()
+// terminal branch exactly, not a new labeling scheme.
+export function resolveMemberDisplayName({ uid, campaignId, userId, myIdentity, view, invitations, members }) {
+  if (!uid) return "Vacant";
   const people = Object.values(view?.people ?? {});
   const invited = people.find((p) => p.id === `invite:${campaignId}:${uid}`)?.name;
   if (invited) return invited;
   if (uid === userId && myIdentity) return myIdentity.displayName?.trim() || myIdentity.email || "You";
   const acceptedInvite = invitations.find((i) => i.accepted_by === uid && i.status === "accepted");
   if (acceptedInvite?.invited_name) return acceptedInvite.invited_name;
+  const rosterName = people.find((p) => p.id === uid)?.name;
+  if (rosterName) return rosterName;
+  const role = members?.find((m) => m.person === uid)?.member_role;
+  if (role === "owner") return "Campaign Owner";
+  if (role === "manager") return "Campaign Director";
   return "Campaign member";
 }
 
@@ -82,12 +133,13 @@ export async function getReassignmentCandidates({ client, campaignId, userId, vi
 
   const candidates = (memberRows ?? [])
     .map((m) => ({ id: `invite:${campaignId}:${m.person}`, uid: m.person,
-      name: resolveMemberDisplayName({ uid: m.person, campaignId, userId, myIdentity, view, invitations }) }))
+      name: resolveMemberDisplayName({ uid: m.person, campaignId, userId, myIdentity, view, invitations, members: memberRows }) }))
     .filter((c) => c.id !== excludePersonRef);
   return { data: candidates, error: null };
 }
 
 function InviteWizard({ campaignId, refresh, territory, offices, myRole, myResponsibility, invitePrefill, onDone }) {
+  const { t } = useTranslation();
   const [step, setStep] = useState(1);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -224,7 +276,7 @@ function InviteWizard({ campaignId, refresh, territory, offices, myRole, myRespo
     || (role === "WARD_COORDINATOR" && wardId)
     || (role === "POLLING_UNIT_AGENT" && puId);
 
-  const roleLabel = role === "DIRECTOR" ? "Campaign Director" : RESPONSIBILITY_ROLE_LABEL[role];
+  const roleLabel = role === "DIRECTOR" ? t("role.director") : t(RESPONSIBILITY_ROLE_LABEL_KEY[role]);
   const lgaName = availableLgas.find((l) => l.id === (lgaId || myResponsibility?.geographyRef))?.name;
   const wardName = wards.find((w) => w.id === wardId)?.name ?? autoWardName;
   const selectedPu = pollingUnits.find((p) => p.id === puId);
@@ -274,7 +326,7 @@ function InviteWizard({ campaignId, refresh, territory, offices, myRole, myRespo
         : { color: AMBER, text: `The invitation email could not be sent${emailError ? ` (${emailError})` : ""} — share the link below directly.` };
     return (
       <Panel accent={TEAL}>
-        <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 12, color: TEAL, marginBottom: 8 }}>Invitation created</div>
+        <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 12, color: TEAL, marginBottom: 8 }}>{t("org.invitationCreated")}</div>
         <div style={{ fontFamily: UI, fontSize: 13, color: emailLine.color, marginBottom: 10 }}>
           {emailLine.text}
         </div>
@@ -290,7 +342,7 @@ function InviteWizard({ campaignId, refresh, territory, offices, myRole, myRespo
             style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", padding: "10px 16px", border: `1px solid ${BORDER}`, background: "transparent", color: IVORY, cursor: "pointer" }}>
             {copied ? "Copied ✓" : "Copy invitation link"}
           </button>
-          <button onClick={onDone} style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", padding: "10px 16px", border: "none", background: TEAL, color: BLACK, cursor: "pointer" }}>Done</button>
+          <button onClick={onDone} style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", padding: "10px 16px", border: "none", background: TEAL, color: BLACK, cursor: "pointer" }}>{t("action.done")}</button>
         </div>
       </Panel>
     );
@@ -304,10 +356,10 @@ function InviteWizard({ campaignId, refresh, territory, offices, myRole, myRespo
 
       {step === 1 && (
         <>
-          <div style={{ fontFamily: UI, fontSize: 10, color: MUTED, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.06em" }}>Name</div>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. John Doe" aria-label="Name" style={inputStyle} />
-          <div style={{ fontFamily: UI, fontSize: 10, color: MUTED, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.06em" }}>Email</div>
-          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="e.g. john@example.com" type="email" aria-label="Email" style={inputStyle} />
+          <div style={{ fontFamily: UI, fontSize: 10, color: MUTED, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("org.name")}</div>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("org.namePlaceholder")} aria-label={t("org.name")} style={inputStyle} />
+          <div style={{ fontFamily: UI, fontSize: 10, color: MUTED, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.06em" }}>{t("org.email")}</div>
+          <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t("org.emailPlaceholder")} type="email" aria-label={t("org.email")} style={inputStyle} />
           <button onClick={() => setStep(2)} disabled={!name.trim() || !email.trim()}
             style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase", padding: "11px 18px", border: "none",
               background: name.trim() && email.trim() ? TEAL : BORDER, color: BLACK, cursor: name.trim() && email.trim() ? "pointer" : "not-allowed" }}>Next →</button>
@@ -318,10 +370,10 @@ function InviteWizard({ campaignId, refresh, territory, offices, myRole, myRespo
         <>
           <div style={{ fontFamily: UI, fontSize: 13, color: MUTED, marginBottom: 14 }}>What is {name}'s responsibility?</div>
           <div style={{ display: "grid", gap: 8, marginBottom: 14 }}>
-            {canOfferDirector && <RoleButton label="Campaign Director" active={role === "DIRECTOR"} onClick={() => setRole("DIRECTOR")} />}
-            {canOfferLga && <RoleButton label="LGA Coordinator" active={role === "LGA_COORDINATOR"} onClick={() => setRole("LGA_COORDINATOR")} />}
-            {canOfferWard && <RoleButton label="Ward Coordinator" active={role === "WARD_COORDINATOR"} onClick={() => setRole("WARD_COORDINATOR")} />}
-            {canOfferPu && <RoleButton label="Polling-Unit Agent" active={role === "POLLING_UNIT_AGENT"} onClick={() => setRole("POLLING_UNIT_AGENT")} />}
+            {canOfferDirector && <RoleButton label={t("role.director")} active={role === "DIRECTOR"} onClick={() => setRole("DIRECTOR")} />}
+            {canOfferLga && <RoleButton label={t("role.lgaCoordinator")} active={role === "LGA_COORDINATOR"} onClick={() => setRole("LGA_COORDINATOR")} />}
+            {canOfferWard && <RoleButton label={t("role.wardCoordinator")} active={role === "WARD_COORDINATOR"} onClick={() => setRole("WARD_COORDINATOR")} />}
+            {canOfferPu && <RoleButton label={t("role.puAgent")} active={role === "POLLING_UNIT_AGENT"} onClick={() => setRole("POLLING_UNIT_AGENT")} />}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <BackButton onClick={() => setStep(1)} />
@@ -346,9 +398,9 @@ function InviteWizard({ campaignId, refresh, territory, offices, myRole, myRespo
           )}
           {needsWard && (
             <>
-              <div style={{ fontFamily: UI, fontSize: 10, color: MUTED, marginBottom: 4, textTransform: "uppercase" }}>Ward</div>
+              <div style={{ fontFamily: UI, fontSize: 10, color: MUTED, marginBottom: 4, textTransform: "uppercase" }}>{t("territory.ward")}</div>
               {(myResponsibility?.responsibilityRole !== "LGA_COORDINATOR" && !lgaId) ? (
-                <div style={{ fontFamily: UI, fontSize: 12, color: MUTED, marginBottom: 9 }}>Select an LGA first.</div>
+                <div style={{ fontFamily: UI, fontSize: 12, color: MUTED, marginBottom: 9 }}>{t("territory.selectLgaFirst")}</div>
               ) : wards.length === 0 ? (
                 <div style={{ fontFamily: UI, fontSize: 12, color: MUTED, marginBottom: 9 }}>
                   Territory data will appear here when the authoritative reference data for this LGA is available.
@@ -367,7 +419,7 @@ function InviteWizard({ campaignId, refresh, territory, offices, myRole, myRespo
                 Polling Unit{autoWardName ? ` — ${autoWardName}` : ""}
               </div>
               {!effectiveWardForPu ? (
-                <div style={{ fontFamily: UI, fontSize: 12, color: MUTED, marginBottom: 9 }}>Select a ward first.</div>
+                <div style={{ fontFamily: UI, fontSize: 12, color: MUTED, marginBottom: 9 }}>{t("territory.selectWardFirst")}</div>
               ) : pollingUnits.length === 0 ? (
                 <div style={{ fontFamily: UI, fontSize: 12, color: MUTED, marginBottom: 9 }}>
                   Territory data will appear here when the authoritative reference data for this ward is available.
@@ -391,11 +443,11 @@ function InviteWizard({ campaignId, refresh, territory, offices, myRole, myRespo
 
       {step === 4 && (
         <>
-          <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: TEAL, marginBottom: 10 }}>Review</div>
+          <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: TEAL, marginBottom: 10 }}>{t("action.reviewHeading")}</div>
           <div style={{ fontFamily: UI, fontSize: 13, color: IVORY, lineHeight: 1.9, marginBottom: 16 }}>
             Person: <strong>{name}</strong> ({email})<br />
             Role: <strong>{roleLabel}</strong><br />
-            {role !== "DIRECTOR" && <>Territory: <strong>{[lgaName, wardName, puLabel].filter(Boolean).join(" → ")}</strong><br /></>}
+            {role !== "DIRECTOR" && <>{t("org.territoryPrefix")} <strong>{[lgaName, wardName, puLabel].filter(Boolean).join(" → ")}</strong><br /></>}
             {/* ELECTIONCANON 1.1.1 PHASE A — this was mislabeled "Campaign:"
                 while showing tree?.constituency?.name, never campaigns.name;
                 a constituency and a campaign are different real facts (see
@@ -443,6 +495,7 @@ function BackButton({ onClick }) {
 // insert/delete) is what actually decides; this UI only hides a control
 // nobody but an owner/manager could use successfully anyway.
 function LanguageCapabilitiesPanel({ campaignId, userId, myRole, members, nameFor }) {
+  const { t } = useTranslation();
   const [capabilities, setCapabilities] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -473,13 +526,13 @@ function LanguageCapabilitiesPanel({ campaignId, userId, myRole, members, nameFo
 
   return (
     <div style={{ marginTop: 18 }}>
-      <Label>Language capabilities</Label>
+      <Label>{t("org.languageCapabilities")}</Label>
       <Panel>
         <div style={{ fontFamily: UI, fontSize: 11.5, color: MUTED, marginBottom: 10 }}>
           Who may review native-language Communications content for this campaign. Owner/manager may review any language regardless of what is shown here.
         </div>
         {visibleMembers.length === 0 ? (
-          <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>No members to show.</div>
+          <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>{t("org.noMembers")}</div>
         ) : visibleMembers.map((m) => (
           <div key={m.person} style={{ padding: "9px 0", borderBottom: `1px solid ${BORDER}` }}>
             <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 12, color: IVORY, marginBottom: 6 }}>{nameFor(m.person)}</div>
@@ -501,7 +554,7 @@ function LanguageCapabilitiesPanel({ campaignId, userId, myRole, members, nameFo
                 ) : null;
               })}
               {!isOwnerOrManager && !commsApi.COMMUNICATION_LANGUAGES.some((l) => hasLanguage(m.person, l.code)) && (
-                <span style={{ fontFamily: UI, fontSize: 11, color: MUTED }}>No declared language capability yet.</span>
+                <span style={{ fontFamily: UI, fontSize: 11, color: MUTED }}>{t("org.noLanguageCapability")}</span>
               )}
             </div>
           </div>
@@ -512,7 +565,8 @@ function LanguageCapabilitiesPanel({ campaignId, userId, myRole, members, nameFo
   );
 }
 
-export default function OrganisationSection({ ctx, campaignId, refresh, inviteHint = null, onInviteHintConsumed }) {
+export default function OrganisationSection({ ctx, campaignId, refresh, inviteHint = null, onInviteHintConsumed, onSection }) {
+  const { t } = useTranslation();
   const [inviting, setInviting] = useState(false);
   // ELECTIONCANON 1.1 HOME OPERATING CONSOLE — captured into OWN local
   // state (not read live off the `inviteHint` prop) the moment it arrives,
@@ -543,6 +597,14 @@ export default function OrganisationSection({ ctx, campaignId, refresh, inviteHi
   // PROFILE_COLUMNS convention (the same self-profile read every other
   // identity surface in this app already uses).
   const [myIdentity, setMyIdentity] = useState(null);
+  // UX REDESIGN SLICE 3 (PEOPLE = RESPONSIBILITY) — the SAME territory-tree
+  // resolution HomeSection.jsx/InviteWizard already independently perform
+  // (getConstituencyTerritory/getStateTerritory), fetched here so the
+  // roster/invitation rows below can answer "WHERE do they operate?" with a
+  // real geography name instead of a raw LGA/ward id. No new geography
+  // source, no write, no second identity model — this only resolves names
+  // for the SAME resp.geographyRef territoryFor() already read.
+  const [territoryTree, setTerritoryTree] = useState(null);
 
   const loadAll = async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -568,6 +630,21 @@ export default function OrganisationSection({ ctx, campaignId, refresh, inviteHi
 
   const territory = ctx.view?.territory ?? null;
   const view = ctx.view ?? {};
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!territory) { setTerritoryTree(null); return undefined; }
+    (async () => {
+      const { data } = territory.constituency
+        ? await getConstituencyTerritory({ client: supabase, constituencyId: territory.constituency })
+        : await getStateTerritory({ client: supabase, stateCode: territory.state });
+      if (!cancelled) setTerritoryTree(data);
+    })();
+    return () => { cancelled = true; };
+  }, [territory?.office, territory?.constituency, territory?.state]); // eslint-disable-line
+
+  const lgaNameById = new Map((territoryTree?.lgas ?? []).map((l) => [l.id, l.name]));
+  const wardNameById = new Map((territoryTree?.wards ?? []).map((w) => [w.id, w.name]));
   const myMemberRow = members.find((m) => m.person === userId);
   const myRole = myMemberRow?.member_role ?? null;
   const myResponsibility = resolveMyResponsibility({ view, campaignId, userId });
@@ -592,63 +669,105 @@ export default function OrganisationSection({ ctx, campaignId, refresh, inviteHi
 
   // PRE-LAUNCH UX CLEANUP PASS — never a raw uid fragment. See
   // resolveMemberDisplayName()'s own header above for the resolution order.
-  const nameFor = (uid) => resolveMemberDisplayName({ uid, campaignId, userId, myIdentity, view, invitations });
+  const nameFor = (uid) => resolveMemberDisplayName({ uid, campaignId, userId, myIdentity, view, invitations, members });
   const roleFor = (uid) => {
     const resp = Object.values(view.responsibilities ?? {}).find((r) => r.person === `invite:${campaignId}:${uid}`);
-    return resp ? RESPONSIBILITY_ROLE_LABEL[resp.responsibilityRole] : (members.find((m) => m.person === uid)?.member_role === "owner" ? "Campaign Owner" : members.find((m) => m.person === uid)?.member_role === "manager" ? "Campaign Director" : "Team member");
+    return resp ? t(RESPONSIBILITY_ROLE_LABEL_KEY[resp.responsibilityRole]) : (members.find((m) => m.person === uid)?.member_role === "owner" ? "Campaign Owner" : members.find((m) => m.person === uid)?.member_role === "manager" ? t("role.director") : "Team member");
   };
+  // UX REDESIGN SLICE 3 — resolves the SAME resp.geographyRef this function
+  // always returned, now through the territory-tree maps above when the ref
+  // is an LGA or ward (the two levels the tree actually carries names for).
+  // A polling-unit or constituency ref, or one that doesn't resolve, falls
+  // back to the raw ref exactly as this function always returned it — never
+  // a worse or fabricated result than before.
   const territoryFor = (uid) => {
     const resp = Object.values(view.responsibilities ?? {}).find((r) => r.person === `invite:${campaignId}:${uid}`);
-    return resp?.geographyRef ?? null;
+    if (!resp?.geographyRef) return null;
+    return lgaNameById.get(resp.geographyRef) ?? wardNameById.get(resp.geographyRef) ?? resp.geographyRef;
   };
+
+  // UX REDESIGN SLICE 3 (PEOPLE = RESPONSIBILITY) — same resolvers as
+  // before (nameFor/roleFor/territoryFor), only the row presentation
+  // changed: person -> role -> responsibility/scope -> status -> action,
+  // with a real "no active responsibility" gap called out honestly (the
+  // SAME phrase HomeSection.jsx already uses for this exact fact — see its
+  // own hasNoActiveResponsibility branch — not a new status word).
+  const placeLinkFor = (uid) => (territoryFor(uid) && onSection) ? (
+    <button type="button" onClick={() => onSection("territory")} aria-label={`View ${territoryFor(uid)} in Places`}
+      style={{ ...linkBtn(), fontSize: 10 }}>
+      View in Places →
+    </button>
+  ) : null;
 
   return (
     <div>
-      <Label>Campaign Organisation</Label>
+      <Label>{t("org.whosInvolved")}</Label>
+      <div style={{ marginBottom: 14 }}>
+        <ContextualAsk triggerLabel="Ask about this roster" contextLabel="People"
+          suggestedPrompts={PEOPLE_PROMPTS} view={view} onSection={onSection} />
+      </div>
       <Panel>
         {members.length === 0 ? (
-          <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>No team members yet.</div>
-        ) : members.map((m) => (
-          <div key={m.person} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: `1px solid ${BORDER}` }}>
-            <div>
-              <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 12.5, color: IVORY }}>{nameFor(m.person)}</div>
-              <div style={{ fontFamily: UI, fontSize: 11, color: MUTED, marginTop: 2 }}>{roleFor(m.person)}{territoryFor(m.person) ? ` · ${territoryFor(m.person)}` : ""}</div>
+          <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>{t("org.noTeamYet")}</div>
+        ) : members.map((m) => {
+          const role = roleFor(m.person);
+          const place = territoryFor(m.person);
+          const noResponsibility = role === "Team member";
+          return (
+            <div key={m.person} style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+              gap: 12, flexWrap: "wrap", padding: "10px 0", borderBottom: `1px solid ${BORDER}` }}>
+              <div>
+                <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 12.5, color: IVORY }}>{nameFor(m.person)}</div>
+                <div style={{ fontFamily: UI, fontSize: 11, color: noResponsibility ? MUTED : IVORY, marginTop: 2 }}>
+                  {role}{place ? ` · ${place}` : ""}
+                  {noResponsibility && <span style={{ color: MUTED }}> · No active responsibility</span>}
+                </div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                {placeLinkFor(m.person)}
+                <span style={{ fontFamily: UI, fontWeight: 700, fontSize: 9.5, letterSpacing: "0.1em", textTransform: "uppercase", color: TEAL, border: `1px solid ${TEAL}`, padding: "3px 8px" }}>{t("status.active")}</span>
+              </div>
             </div>
-            <span style={{ fontFamily: UI, fontWeight: 700, fontSize: 9.5, letterSpacing: "0.1em", textTransform: "uppercase", color: TEAL, border: `1px solid ${TEAL}`, padding: "3px 8px" }}>ACTIVE</span>
-          </div>
-        ))}
+          );
+        })}
       </Panel>
 
       <LanguageCapabilitiesPanel campaignId={campaignId} userId={userId} myRole={myRole} members={members} nameFor={nameFor} />
 
       {invitations.length > 0 && (
         <div style={{ marginTop: 18 }}>
-          <Label>Invitations</Label>
+          <Label>{t("org.invitationsHeading")}</Label>
           <Panel>
-            {invitations.map((i) => (
-              <div key={i.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: `1px solid ${BORDER}` }}>
-                <div>
-                  <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 12.5, color: IVORY }}>{i.invited_name}</div>
-                  <div style={{ fontFamily: UI, fontSize: 11, color: MUTED, marginTop: 2 }}>
-                    {i.intended_responsibility_role ? RESPONSIBILITY_ROLE_LABEL[i.intended_responsibility_role] : "Campaign Director"}
+            {invitations.map((i) => {
+              const invitedPlace = i.intended_geography_ref
+                ? (lgaNameById.get(i.intended_geography_ref) ?? wardNameById.get(i.intended_geography_ref) ?? null)
+                : null;
+              return (
+                <div key={i.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: `1px solid ${BORDER}` }}>
+                  <div>
+                    <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 12.5, color: IVORY }}>{i.invited_name}</div>
+                    <div style={{ fontFamily: UI, fontSize: 11, color: MUTED, marginTop: 2 }}>
+                      {i.intended_responsibility_role ? t(RESPONSIBILITY_ROLE_LABEL_KEY[i.intended_responsibility_role]) : t("role.director")}
+                      {invitedPlace ? ` · ${invitedPlace}` : ""}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontFamily: UI, fontWeight: 700, fontSize: 9.5, letterSpacing: "0.1em", textTransform: "uppercase",
+                      color: STATUS_COLOR[i.status], border: `1px solid ${STATUS_COLOR[i.status]}`, padding: "3px 8px" }}>{i.status}</span>
+                    {i.status === "pending" && (myRole === "owner" || myRole === "manager") && (
+                      <button onClick={() => revoke(i.id)} style={{ fontFamily: UI, fontWeight: 700, fontSize: 10, color: PINK, background: "transparent", border: "none", cursor: "pointer" }}>{t("action.revoke")}</button>
+                    )}
                   </div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontFamily: UI, fontWeight: 700, fontSize: 9.5, letterSpacing: "0.1em", textTransform: "uppercase",
-                    color: STATUS_COLOR[i.status], border: `1px solid ${STATUS_COLOR[i.status]}`, padding: "3px 8px" }}>{i.status}</span>
-                  {i.status === "pending" && (myRole === "owner" || myRole === "manager") && (
-                    <button onClick={() => revoke(i.id)} style={{ fontFamily: UI, fontWeight: 700, fontSize: 10, color: PINK, background: "transparent", border: "none", cursor: "pointer" }}>Revoke</button>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </Panel>
         </div>
       )}
 
       {!territory ? (
         <div style={{ marginTop: 18 }}>
-          <Panel accent={PINK}><div style={{ fontFamily: UI, fontSize: 13, color: IVORY }}>Set your territory in the Territory tab before inviting people.</div></Panel>
+          <Panel accent={PINK}><div style={{ fontFamily: UI, fontSize: 13, color: IVORY }}>{t("org.needTerritoryFirst")}</div></Panel>
         </div>
       ) : !canInvite ? null : !officesLoaded ? (
         <div style={{ marginTop: 18 }}>

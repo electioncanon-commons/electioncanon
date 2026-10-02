@@ -1,5 +1,5 @@
 // ============================================================
-// ELECTION FORGE — CHAT  (Alpha 1.0)
+// ELECTIONCANON — CHAT  (Alpha 1.0)
 //
 // Real, persisted coordination chat — see src/domains/election/chat/api.js.
 // Direct RLS-protected CRUD, not PREPARE/APPROVE (see that module's own
@@ -13,6 +13,7 @@ import { supabase } from "../../lib/supabase.js";
 import * as chatApi from "../../domains/election/chat/api.js";
 import { proposeCreateTask, executeCreateTask } from "../../domains/election/mobilization/write.js";
 import { Label, Panel, friendlyError, UI, IVORY, MUTED, TEAL, AMBER, PINK, BORDER, BLACK, inputStyle } from "./shared.jsx";
+import { useTranslation } from "./useTranslation.js";
 
 // ALPHA 1.1 — named presets for the coordination-tier hierarchy §7 asks
 // for (National/State/LGA/Ward/Team), on top of the same createRoom() API
@@ -36,13 +37,14 @@ const ROOM_PRESETS = Object.freeze([
 ]);
 
 function RoomList({ rooms, activeRoomId, onSelect, unreadCounts, onCreate }) {
+  const { t } = useTranslation();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
   const [scopeType, setScopeType] = useState("ward");
   return (
     <Panel>
       <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 10, letterSpacing: "0.14em",
-        textTransform: "uppercase", color: TEAL, marginBottom: 10 }}>Coordination rooms</div>
+        textTransform: "uppercase", color: TEAL, marginBottom: 10 }}>{t("chat.coordinationRooms")}</div>
       {rooms.map((r) => {
         const active = r.id === activeRoomId;
         const unread = unreadCounts[r.id] ?? 0;
@@ -66,7 +68,7 @@ function RoomList({ rooms, activeRoomId, onSelect, unreadCounts, onCreate }) {
             border: "none", cursor: "pointer", padding: "8px 0" }}>+ New room</button>
       ) : (
         <div style={{ marginTop: 8 }}>
-          <div style={{ fontFamily: UI, fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: MUTED, marginBottom: 6 }}>Room type</div>
+          <div style={{ fontFamily: UI, fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: MUTED, marginBottom: 6 }}>{t("chat.roomType")}</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
             {ROOM_PRESETS.map((p) => (
               <button key={p.scopeType} type="button" onClick={() => { setScopeType(p.scopeType); if (!name.trim()) setName(p.label); }}
@@ -77,15 +79,15 @@ function RoomList({ rooms, activeRoomId, onSelect, unreadCounts, onCreate }) {
               </button>
             ))}
           </div>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Ward 3 Coordination"
-            aria-label="New room name" style={{ ...inputStyle, marginBottom: 6 }} />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("chat.newRoomPlaceholder")}
+            aria-label={t("chat.newRoomName")} style={{ ...inputStyle, marginBottom: 6 }} />
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={() => { onCreate(name, scopeType); setName(""); setCreating(false); }} disabled={!name.trim()}
               style={{ fontFamily: UI, fontWeight: 700, fontSize: 10.5, padding: "8px 14px", border: "none",
-                background: name.trim() ? TEAL : BORDER, color: BLACK, cursor: name.trim() ? "pointer" : "not-allowed" }}>Create</button>
+                background: name.trim() ? TEAL : BORDER, color: BLACK, cursor: name.trim() ? "pointer" : "not-allowed" }}>{t("action.create")}</button>
             <button onClick={() => setCreating(false)}
               style={{ fontFamily: UI, fontWeight: 700, fontSize: 10.5, padding: "8px 14px", background: "transparent",
-                border: `1px solid ${BORDER}`, color: MUTED, cursor: "pointer" }}>Cancel</button>
+                border: `1px solid ${BORDER}`, color: MUTED, cursor: "pointer" }}>{t("action.cancel")}</button>
           </div>
         </div>
       )}
@@ -96,6 +98,7 @@ function RoomList({ rooms, activeRoomId, onSelect, unreadCounts, onCreate }) {
 const CONTEXT_KINDS = Object.freeze(["polling_unit", "incident", "result", "task"]);
 
 function Thread({ room, messages, userId, onSend, onReportTask, error }) {
+  const { t } = useTranslation();
   const [draft, setDraft] = useState("");
   const [linking, setLinking] = useState(false);
   const [contextKind, setContextKind] = useState(CONTEXT_KINDS[0]);
@@ -114,7 +117,7 @@ function Thread({ room, messages, userId, onSend, onReportTask, error }) {
       </div>
       <div style={{ flex: 1, overflowY: "auto", marginBottom: 12 }}>
         {!room ? null : messages.length === 0 ? (
-          <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>No messages yet — say hello.</div>
+          <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>{t("chat.noMessagesYet")}</div>
         ) : messages.map((m) => (
           <div key={m.id} style={{ marginBottom: 10 }}>
             <div style={{ fontFamily: UI, fontSize: 10, color: MUTED, marginBottom: 2 }}>
@@ -148,22 +151,22 @@ function Thread({ room, messages, userId, onSend, onReportTask, error }) {
           </button>
           {linking && (
             <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
-              <select value={contextKind} onChange={(e) => setContextKind(e.target.value)} aria-label="Reference type"
+              <select value={contextKind} onChange={(e) => setContextKind(e.target.value)} aria-label={t("chat.referenceType")}
                 style={{ ...inputStyle, marginBottom: 0, width: 140 }}>
                 {CONTEXT_KINDS.map((k) => <option key={k} value={k}>{k.replace(/_/g, " ")}</option>)}
               </select>
-              <input value={contextRef} onChange={(e) => setContextRef(e.target.value)} placeholder="its id"
-                aria-label="Reference id" style={{ ...inputStyle, marginBottom: 0, flex: 1 }} />
+              <input value={contextRef} onChange={(e) => setContextRef(e.target.value)} placeholder={t("chat.referenceIdPlaceholder")}
+                aria-label={t("chat.referenceId")} style={{ ...inputStyle, marginBottom: 0, flex: 1 }} />
             </div>
           )}
           <div style={{ display: "flex", gap: 8 }}>
             <input value={draft} onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") send(); }}
-              placeholder="Write a message…" aria-label="Message" style={{ ...inputStyle, marginBottom: 0, flex: 1 }} />
+              placeholder={t("chat.messagePlaceholder")} aria-label={t("chat.message")} style={{ ...inputStyle, marginBottom: 0, flex: 1 }} />
             <button onClick={send} disabled={!draft.trim()}
               style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.1em", textTransform: "uppercase",
                 padding: "11px 18px", border: "none", background: draft.trim() ? TEAL : BORDER, color: BLACK,
-                cursor: draft.trim() ? "pointer" : "not-allowed" }}>Send</button>
+                cursor: draft.trim() ? "pointer" : "not-allowed" }}>{t("action.send")}</button>
           </div>
         </>
       )}
@@ -173,6 +176,7 @@ function Thread({ room, messages, userId, onSend, onReportTask, error }) {
 }
 
 export default function ChatSection({ campaignId, userId }) {
+  const { t } = useTranslation();
   const [rooms, setRooms] = useState([]);
   const [activeRoomId, setActiveRoomId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -255,11 +259,11 @@ export default function ChatSection({ campaignId, userId }) {
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 18 }}>
       <div>
-        <Label>Rooms</Label>
+        <Label>{t("chat.roomsHeading")}</Label>
         <RoomList rooms={rooms} activeRoomId={activeRoomId} onSelect={setActiveRoomId} unreadCounts={unreadCounts} onCreate={onCreate} />
       </div>
       <div>
-        <Label>Conversation</Label>
+        <Label>{t("chat.conversationHeading")}</Label>
         <Thread room={activeRoom} messages={messages} userId={userId} onSend={onSend} onReportTask={onReportTask} error={error} />
       </div>
     </div>

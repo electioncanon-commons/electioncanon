@@ -72,20 +72,30 @@ export async function activateElection({ client, name = null, requestedCampaign 
 }
 
 /**
- * ALPHA 1.0 — the raw, tenant-scoped event log, for the ONE surface that
- * needs it directly rather than only its folded `view`: Intelligence's
- * "Ask Election Forge" panel, which grounds every answer against real
- * source events (see os/studio/infer.js's runInference and grounding.js).
+ * ALPHA 1.0 — the raw, tenant-scoped event log, for surfaces that need it
+ * directly rather than only the folded `view`: Intelligence's Ask panel
+ * (grounds answers against real source events — see os/studio/infer.js's
+ * runInference and grounding.js) and EventsSection.jsx's Canon view.
  * Same authentication/scope discipline as readElectionCanon() — resolves
  * its own userId and scope, never trusts a caller-supplied campaign id
  * without re-verifying real membership first.
+ *
+ * CANONICAL RETURN SHAPE — `{ log, error }`, on every path. Previously the
+ * success path forwarded `loadElectionLog()`'s own `{ events, error }`
+ * verbatim while the two early-return branches above used `{ log, error }`
+ * — a real shape mismatch (fixed here). `loadElectionLog()` itself
+ * (electionContext.js) is untouched — it still returns `{ events, error }`
+ * for its OWN caller, getElectionContext(), which folds Canon and is out
+ * of scope for this fix; this function is the one place that translates
+ * `events` -> `log` at the boundary its own callers actually depend on.
  */
 export async function readElectionLog({ client, requestedCampaign = null } = {}) {
   const userId = await getAuthenticatedUserId({ client });
   if (!userId) return { log: [], error: "no authenticated session" };
   const scope = await resolveElectionScope({ userId, client, requested: requestedCampaign });
   if (!isElectionScoped(scope)) return { log: [], error: scope.error ?? scope.reason ?? "no verified campaign membership" };
-  return loadElectionLog({ client, campaignId: scope.campaignId });
+  const { events, error } = await loadElectionLog({ client, campaignId: scope.campaignId });
+  return { log: events, error };
 }
 
 /** Adapter-level refusal states — auth/scope concerns, never a write-content concern (that stays write.js's own vocabulary). */

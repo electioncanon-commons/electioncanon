@@ -1,5 +1,14 @@
 import { Routes, Route } from "react-router-dom";
 import { ForgeIdentityProvider } from "./os/ForgeIdentity.jsx";
+// VISIBILITY EXPANSION PASS — same LanguageProvider Election.jsx's own
+// shell() already mounts for the authenticated app, reused here around the
+// public Landing route only (Landing.jsx had no language selection at all
+// before this pass). Not a second provider/context: one LanguageProvider
+// implementation, mounted at two independent root points, each scoped to
+// the page tree that actually needs it. Both read/write the SAME
+// localStorage key (LanguageContext.jsx's own STORAGE_KEY), so a language
+// chosen here is still selected after a visitor signs in.
+import { LanguageProvider } from "./pages/election/LanguageContext.jsx";
 
 import Landing from "./pages/Landing.jsx";
 import Election from "./pages/Election.jsx";
@@ -20,7 +29,7 @@ export default function App() {
   return (
     <ForgeIdentityProvider>
       <Routes>
-        <Route path="/" element={<Landing />} />
+        <Route path="/" element={<LanguageProvider><Landing /></LanguageProvider>} />
         <Route path="/election" element={<Election />} />
         <Route path="/access" element={<Access />} />
         <Route path="/invite/:token" element={<AcceptInvite />} />

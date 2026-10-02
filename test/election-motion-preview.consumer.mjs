@@ -34,6 +34,7 @@ const repoRoot = fileURLToPath(new URL("../", import.meta.url));
 const previewSrc = readFileSync(join(repoRoot, "src", "pages", "election", "MotionPreview.jsx"), "utf8");
 const studioSrc = readFileSync(join(repoRoot, "src", "pages", "election", "CampaignStudioSection.jsx"), "utf8");
 const codeOnly = previewSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+const uiStringsSrc = readFileSync(join(repoRoot, "src", "pages", "election", "uiStrings.js"), "utf8");
 
 // ============================================================
 console.log("Governance — the existing governed pipeline is used, never a shortcut");
@@ -468,10 +469,15 @@ console.log("\nGATE A.7.2B — CONTEXTUAL CONTROL: TEXT vs IMAGE, never both");
     return textGate && imageGate;
   })());
   ok("CTX4. ELEMENT_KIND is imported from the existing design/composition.js — never a hardcoded 'text'/'image' string literal used for this gating", /import\s*\{[^}]*ELEMENT_KIND[^}]*\}\s*from\s*["'].*design\/composition\.js["']/.test(previewSrc));
-  ok("CTX5. the empty-image state is understandable — a plain \"No photo added\" message renders when the IMAGE block is showing but no heroImage drawable exists yet", /No photo added/.test(previewSrc));
+  // PHASE 2 UI-STRING WIRING — the literal "No photo added" message is now
+  // t("studio.noPhotoAdded") (see uiStrings.js, English value unchanged);
+  // both checks below locate the call site via the translation key instead
+  // of the literal text, which no longer appears raw in codeOnly.
+  ok("CTX5. the empty-image state is understandable — a plain \"No photo added\" message renders when the IMAGE block is showing but no heroImage drawable exists yet",
+    /t\(["']studio\.noPhotoAdded["']\)/.test(codeOnly) && /"studio\.noPhotoAdded":\s*"No photo added"/.test(uiStringsSrc));
   ok("CTX6. the opacity slider is conditioned on `heroImage` being present — it never renders (with nothing to control) when no photo has been chosen", (() => {
     const imgBlockStart = codeOnly.indexOf("selectedElement.kind === ELEMENT_KIND.IMAGE");
-    const imgBlockEnd = codeOnly.indexOf(")}", codeOnly.indexOf("No photo added"));
+    const imgBlockEnd = codeOnly.indexOf(")}", codeOnly.indexOf('t("studio.noPhotoAdded")'));
     const imgBlock = codeOnly.slice(imgBlockStart, imgBlockEnd);
     return /heroImage \?/.test(imgBlock);
   })());

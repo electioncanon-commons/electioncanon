@@ -78,7 +78,7 @@ import { supabase } from "../lib/supabase.js";
 import { useIdentity } from "../os/ForgeIdentity.jsx";
 import { getInvitationPreview } from "../domains/election/invitations/read.js";
 import { parseCampaignTitle } from "./election/shared.jsx";
-import { FORGE_CLIPS } from "../os/geometry.js";
+import { CLIP_PATHS } from "../os/geometry.js";
 
 const ROLE_LABEL = Object.freeze({
   CONSTITUENCY_LEAD: "Constituency Lead", LGA_COORDINATOR: "LGA Coordinator",
@@ -104,8 +104,8 @@ function maskEmail(email) {
 const { black:BLACK, ivory:IVORY, teal:TEAL, amber:AMBER, pink:PINK,
         surface:SURFACE_T, border:BORDER_T, grey:GREY_T } = T;
 const SURFACE=SURFACE_T, BORDER=BORDER_T, MUTED=GREY_T;
-const UI="var(--forge-brand-font, 'Poppins', system-ui, sans-serif)";
-const DISPLAY="var(--forge-display-font, 'Poppins', system-ui, sans-serif)";
+const UI="var(--font-ui, 'Poppins', system-ui, sans-serif)";
+const DISPLAY="var(--font-display, 'Poppins', system-ui, sans-serif)";
 const NG_STATES=["Abia","Adamawa","Akwa Ibom","Anambra","Bauchi","Bayelsa","Benue","Borno",
   "Cross River","Delta","Ebonyi","Edo","Ekiti","Enugu","FCT Abuja","Gombe","Imo","Jigawa",
   "Kaduna","Kano","Katsina","Kebbi","Kogi","Kwara","Lagos","Nasarawa","Niger","Ogun","Ondo",
@@ -114,7 +114,7 @@ const NG_STATES=["Abia","Adamawa","Akwa Ibom","Anambra","Bauchi","Bayelsa","Benu
 const label = { fontFamily:UI, fontWeight:600, fontSize:10, letterSpacing:"0.18em",
   textTransform:"uppercase", color:TEAL, display:"block", marginBottom:7 };
 const field = { width:"100%", background:BLACK, border:`1px solid ${BORDER}`, color:IVORY,
-  fontFamily:UI, fontSize:14, padding:"12px 14px", clipPath:FORGE_CLIPS.buttonSm, outline:"none" };
+  fontFamily:UI, fontSize:14, padding:"12px 14px", clipPath:CLIP_PATHS.buttonSm, outline:"none" };
 
 export default function Access() {
   const { configured, register, signIn, session, requestPasswordReset } = useIdentity();
@@ -210,7 +210,7 @@ export default function Access() {
   }
 
   return (
-    <div className="forge-brand" style={{ background:BLACK, color:IVORY, minHeight:"100vh",
+    <div className="ec-brand" style={{ background:BLACK, color:IVORY, minHeight:"100vh",
       padding:"clamp(28px,5vw,64px)", fontFamily:UI }}>
       <div style={{ maxWidth:1080, margin:"0 auto" }}>
 
@@ -255,7 +255,7 @@ export default function Access() {
         )}
 
         {!configured && (
-          <div style={{ clipPath:FORGE_CLIPS.panelBR, background:"rgba(255,46,99,0.08)",
+          <div style={{ clipPath:CLIP_PATHS.panelBR, background:"rgba(255,46,99,0.08)",
             border:`1px solid ${PINK}`, padding:"14px 16px", marginBottom:24, maxWidth:720 }}>
             <b style={{ color:PINK, fontSize:12, letterSpacing:"0.1em" }}>DATABASE NOT REACHABLE</b>
             <div style={{ color:"rgba(245,241,233,.8)", fontSize:13, marginTop:6, lineHeight:1.55 }}>
@@ -300,12 +300,12 @@ export default function Access() {
                 <a href={`mailto:${confirmedEmail}`}
                   style={{ fontFamily:UI, fontWeight:700, fontSize:11, letterSpacing:"0.12em", textTransform:"uppercase",
                     padding:"13px 20px", background:"transparent", color:IVORY, border:`1px solid ${BORDER}`,
-                    clipPath:FORGE_CLIPS.button, textDecoration:"none", display:"inline-block" }}>
+                    clipPath:CLIP_PATHS.button, textDecoration:"none", display:"inline-block" }}>
                   Open your email
                 </a>
                 <button type="button" onClick={() => backToForm("signin")}
                   style={{ fontFamily:UI, fontWeight:700, fontSize:11, letterSpacing:"0.12em", textTransform:"uppercase",
-                    padding:"13px 20px", border:"none", clipPath:FORGE_CLIPS.button,
+                    padding:"13px 20px", border:"none", clipPath:CLIP_PATHS.button,
                     background:AMBER, color:BLACK, cursor:"pointer" }}>
                   I've confirmed my email
                 </button>
@@ -319,7 +319,7 @@ export default function Access() {
             <button key={m} type="button" onClick={() => backToForm(m)}
               style={{ fontFamily:UI, fontWeight:700, fontSize:11, letterSpacing:"0.14em",
                 textTransform:"uppercase", padding:"11px 20px", cursor:"pointer",
-                clipPath:FORGE_CLIPS.button, border:"none",
+                clipPath:CLIP_PATHS.button, border:"none",
                 background: mode===m ? AMBER : "transparent",
                 color: mode===m ? BLACK : MUTED,
                 boxShadow: mode===m ? "none" : `inset 0 0 0 1px ${BORDER}` }}>
@@ -346,7 +346,7 @@ export default function Access() {
                   <button type="submit" disabled={busy || !configured}
                     style={{ fontFamily:UI, fontWeight:700, fontSize:12.5, letterSpacing:"0.12em",
                       textTransform:"uppercase", padding:"14px 26px", border:"none",
-                      clipPath:FORGE_CLIPS.button,
+                      clipPath:CLIP_PATHS.button,
                       background: (busy || !configured) ? BORDER : AMBER,
                       color: (busy || !configured) ? MUTED : BLACK,
                       cursor: (busy || !configured) ? "not-allowed" : "pointer" }}>
@@ -356,7 +356,7 @@ export default function Access() {
                     style={{ fontFamily:UI, fontWeight:700, fontSize:11, letterSpacing:"0.12em",
                       textTransform:"uppercase", padding:"14px 18px", cursor:"pointer",
                       background:"transparent", color:MUTED, border:`1px solid ${BORDER}`,
-                      clipPath:FORGE_CLIPS.button }}>
+                      clipPath:CLIP_PATHS.button }}>
                     ← Back to sign in
                   </button>
                 </div>
@@ -373,7 +373,7 @@ export default function Access() {
           {mode === "register" && !invitationPreview && (
             <div>
               <span style={label}>What you are registering</span>
-              <div style={{ clipPath:FORGE_CLIPS.panelBR, background:SURFACE,
+              <div style={{ clipPath:CLIP_PATHS.panelBR, background:SURFACE,
                 borderTop:`2px solid ${TEAL}`, padding:"14px 16px" }}>
                 <div style={{ fontFamily:UI, fontSize:13, color:"rgba(245,241,233,.82)", lineHeight:1.55 }}>
                   A candidate campaign or an observer/monitoring organisation — you choose which,
@@ -428,7 +428,7 @@ export default function Access() {
               <button type="submit" disabled={busy || !configured}
                 style={{ fontFamily:UI, fontWeight:700, fontSize:12.5, letterSpacing:"0.12em",
                   textTransform:"uppercase", padding:"14px 26px", border:"none",
-                  clipPath:FORGE_CLIPS.button,
+                  clipPath:CLIP_PATHS.button,
                   background: (busy || !configured) ? BORDER : AMBER,
                   color: (busy || !configured) ? MUTED : BLACK,
                   cursor: (busy || !configured) ? "not-allowed" : "pointer" }}>
@@ -439,7 +439,7 @@ export default function Access() {
                   style={{ fontFamily:UI, fontWeight:700, fontSize:11, letterSpacing:"0.12em",
                     textTransform:"uppercase", padding:"12px 22px", cursor:"pointer",
                     background:"transparent", color:TEAL, border:`1px solid ${TEAL}`,
-                    clipPath:FORGE_CLIPS.button }}>
+                    clipPath:CLIP_PATHS.button }}>
                   Go to ElectionCanon →
                 </button>
               )}

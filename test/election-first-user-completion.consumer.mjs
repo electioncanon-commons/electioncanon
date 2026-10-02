@@ -294,8 +294,13 @@ console.log("\nE — INVITATION STATUS LANGUAGE IS HONEST (item 5)");
   const orgSection = code("../src/pages/election/OrganisationSection.jsx");
   const clientWrite = code("../src/domains/election/invitations/write.js");
 
+  // PHASE 2 UI-STRING WIRING — the literal heading is now
+  // t("org.invitationCreated") (see uiStrings.js, English value unchanged).
+  const uiStringsForE = code("../src/pages/election/uiStrings.js");
   ok("E1. the just-created panel claims only 'Invitation created', never an unconditional 'Invitation sent'",
-    /Invitation created/.test(orgSection) && !/>Invitation sent</.test(orgSection));
+    /t\(["']org\.invitationCreated["']\)/.test(orgSection)
+    && /"org\.invitationCreated":\s*"Invitation created"/.test(uiStringsForE)
+    && !/>Invitation sent</.test(orgSection));
   ok("E2. a successfully dispatched email is described as 'queued for delivery', not 'delivered'",
     /queued for delivery/.test(orgSection));
   ok("E3. an email failure is shown to the user, distinctly from success, never silently swallowed",

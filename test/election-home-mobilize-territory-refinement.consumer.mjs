@@ -28,15 +28,20 @@ const territory = code("../src/pages/election/TerritorySection.jsx");
 
 console.log("A. Home: attention positioned before secondary content");
 {
-  const attentionIdx = home.indexOf('Label>What needs attention today');
+  // PHASE 2 UI-STRING WIRING — the literal headings below are now
+  // t("home.whatNeedsAttention") / t("home.yourElection") (see uiStrings.js);
+  // position-check against the translation-key call sites instead of the
+  // literal English text, which no longer appears raw in this file.
+  const attentionIdx = home.indexOf('Label>{t("home.whatNeedsAttention")}');
   const myScopeIdx = home.indexOf("myResponsibility &&");
   const coverageCardIdx = home.indexOf("<CoverageCard");
+  const yourElectionIdx = home.indexOf('Label>{t("home.yourElection")}');
   ok("1. 'What needs attention today' appears in the render output before MyScopeCard's conditional render",
      attentionIdx !== -1 && myScopeIdx !== -1 && attentionIdx < myScopeIdx);
   ok("2. 'What needs attention today' appears before <CoverageCard",
      attentionIdx !== -1 && coverageCardIdx !== -1 && attentionIdx < coverageCardIdx);
   ok("3. the 'Your election' hero panel still comes first — attention is prominent, not literally the top of the page (it follows the campaign identity panel, per the approved scope: 'appears before secondary Coverage/MyScope content')",
-     home.indexOf("Label>Your election") < attentionIdx);
+     yourElectionIdx !== -1 && yourElectionIdx < attentionIdx);
 }
 
 console.log("\nB. Home: attention actions reuse existing handlers, no fabricated data");
@@ -66,8 +71,10 @@ console.log("\nC. attention.js itself is untouched by this pass (shared with Int
 
 console.log("\nD. Mobilize: user-centered copy, unchanged data source");
 {
+  // PHASE 2 UI-STRING WIRING — the literal label is now
+  // t("home.yourWards") (see uiStrings.js, English value unchanged).
   ok("1. the label reads 'Your wards', not the old system-centric 'Wards known to ElectionCanon'",
-     /Label>Your wards</.test(mobilize) && !/Wards known to ElectionCanon/.test(mobilize));
+     /Label>\{t\(["']home\.yourWards["']\)\}<\/Label>/.test(mobilize) && !/Wards known to ElectionCanon/.test(mobilize));
   ok("2. the empty state is user-centered ('Responsibilities will appear here when ElectionCanon assigns them to you')",
      /No ward responsibility assigned yet\. Responsibilities will appear here when ElectionCanon assigns them to you\./.test(mobilize));
   // NOTE: this file already legitimately imports a DIFFERENT, pre-existing
@@ -87,9 +94,13 @@ console.log("\nE. Territory: clearer intro copy, unchanged geography flow");
      /Tell ElectionCanon where this campaign operates/.test(territory));
   ok("2. the conditional constituency step (needsConstituency) is unchanged — the flow is NOT flattened to three fields",
      /needsConstituency\s*=\s*Boolean\(office\)\s*&&\s*office\.boundary_level\s*!==\s*"national"\s*&&\s*office\.boundary_level\s*!==\s*"state"/.test(territory));
+  // PHASE 2 UI-STRING WIRING — Office/State/Constituency aria-labels are now
+  // t("territory.office")/t("territory.state")/t("territory.constituency")
+  // (see uiStrings.js); Election's own aria-label stayed a literal (no key
+  // was introduced for it since the inventory only scoped its placeholder).
   ok("3. Election/Office/State/Constituency fields all still exist in the wizard",
-     /aria-label="Election"/.test(territory) && /aria-label="Office"/.test(territory) &&
-     /aria-label="State"/.test(territory) && /aria-label="Constituency"/.test(territory));
+     /aria-label="Election"/.test(territory) && /aria-label=\{t\(["']territory\.office["']\)\}/.test(territory) &&
+     /aria-label=\{t\(["']territory\.state["']\)\}/.test(territory) && /aria-label=\{t\(["']territory\.constituency["']\)\}/.test(territory));
   ok("4. the write path (prepareGeographyWrite/approveGeographyWrite, SET_TERRITORY) is untouched",
      /GEOGRAPHY_OPERATION\.SET_TERRITORY/.test(territory) && /prepareGeographyWrite/.test(territory) && /approveGeographyWrite/.test(territory));
 }

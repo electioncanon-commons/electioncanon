@@ -1,5 +1,5 @@
 // ============================================================
-// ELECTION FORGE — CAMPAIGN STUDIO  (Alpha 1.0)
+// ELECTIONCANON — CAMPAIGN STUDIO  (Alpha 1.0)
 //
 // Template gallery -> editor -> save (real, persisted to
 // campaign_studio_assets) -> client-side PNG export (canvas, no backend
@@ -40,6 +40,7 @@ import { buildStudioCreativePayload, validateCreativePayload } from "../../domai
 import CommunicationsPanel from "./Communications.jsx";
 import MotionPreview from "./MotionPreview.jsx";
 import { Label, Panel, DemoTag, friendlyError, downloadBlob, ensureCreativeFontsReady, UI, IVORY, MUTED, TEAL, AMBER, PINK, BORDER, BLACK, inputStyle } from "./shared.jsx";
+import { useTranslation } from "./useTranslation.js";
 
 // GATE A.5.1 — an in-page tab, NOT a new top-level navigation item (see the
 // Gate A.5 architecture report's recommended UI boundary: Campaign Studio
@@ -108,6 +109,7 @@ async function exportPng(asset, template) {
 }
 
 function Editor({ asset, onChange, onSave, onExport, busy, error }) {
+  const { t } = useTranslation();
   const template = TEMPLATES[asset.template_id];
   const setText = (slotId) => (e) => onChange({ ...asset, content: { ...asset.content, text: { ...asset.content.text, [slotId]: e.target.value } } });
 
@@ -115,7 +117,7 @@ function Editor({ asset, onChange, onSave, onExport, busy, error }) {
     <Panel accent={AMBER}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 12, color: IVORY }}>{template.label}</div>
-        <DemoTag label="Text/colour only — no AI image generation connected" />
+        <DemoTag label={t("studio.noAiImageDisclosure")} />
       </div>
       <input value={asset.title} onChange={(e) => onChange({ ...asset, title: e.target.value })}
         placeholder="Asset title" aria-label="Asset title" style={inputStyle} />

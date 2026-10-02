@@ -1,27 +1,34 @@
 /* ============================================================
-   ELECTIONCANON DESIGN TOKENS (formerly BUILD-D001, Part 2)
+   ELECTIONCANON DESIGN TOKENS
    Institutional design tokens: the canonical ElectionCanon palette
-   and typography. This is a STANDARD, not a one-off. The file/class
-   names below ("forge-*") are inherited internal identifiers from
-   this project's original monorepo extraction — they are never
-   rendered or referenced anywhere in ElectionCanon's public copy,
-   UI text, or documentation. See docs/DESIGN_SYSTEM.md.
+   and typography. This is a STANDARD, not a one-off.
 
-   Apply this system to any surface by adding the `.forge-brand`
+   UX REDESIGN SLICE 7 — renamed from --forge-* custom properties and the
+   .forge-brand class (this file was itself already named forge-brand.css;
+   the filename is left as-is per Slice 7's naming audit — renaming the FILE
+   would touch every import of it for a cosmetic gain with no user-facing
+   effect, since a stylesheet's own filename is never visible to an
+   operator). The tokens and class INSIDE it are renamed to ElectionCanon-
+   native semantic names, matching the token names shared.jsx's own
+   ELECTIONCANON object already uses (canvas/ink/accentPrimary/
+   accentSecondary/statusPending — see that file's Slice 1 header).
+
+   Apply this system to any surface by adding the `.ec-brand`
    class: it inherits the palette, the Poppins type system, and maps
-   the existing Geometry accent variables to the brand palette so
-   the geo-* primitives render in institutional colour WITHOUT being
-   rewritten.
+   the existing Geometry accent variables (--forge-gold/--forge-cyan,
+   still owned by geometry.css/typography.css — untouched this pass,
+   see Slice 7's report) to the brand palette so the geo-* primitives
+   render in institutional colour WITHOUT being rewritten.
 
    BRAND ACCENTS — exactly two: teal (primary/active/confirmed) and
    pink (secondary/contextual emphasis). No blue, no purple gradient,
    no new hue introduced beyond what was already established here.
 
-   --forge-amber is NOT a brand accent. It is kept only for its
+   --color-status-pending is NOT a brand accent. It is kept only for its
    existing, pre-established functional role as a warning/attention
    colour — most importantly, the demonstration-data label that
    marks Election Day's simulated results as SIMULATION, never as a
-   real result (see shared.jsx's DemoTag). Do not use amber for new
+   real result (see shared.jsx's DemoTag). Do not use it for new
    brand/marketing surfaces; do not remove it from existing
    simulation-labelling or pending-action UI, since that would
    quietly weaken an honesty-critical visual signal for a cosmetic
@@ -32,46 +39,46 @@
 
 :root {
   /* --- Palette ------------------------------------------------------------ */
-  --forge-black:  #0D0D0F;  /* dominant background — depth, strength */
-  --forge-ivory:  #F5F1E9;  /* primary foreground — clarity, knowledge */
-  --forge-teal:   #0A7F73;  /* brand accent (primary)   — active, confirmed, primary action */
-  --forge-pink:   #FF2E63;  /* brand accent (secondary) — contextual emphasis, geography/metadata */
-  --forge-amber:  #F5A623;  /* functional only — warning / pending / simulation labelling, not brand */
+  --color-canvas:         #0D0D0F;  /* dominant background — depth, strength */
+  --color-ink:            #F5F1E9;  /* primary foreground — clarity, knowledge */
+  --color-accent-primary:   #0A7F73;  /* brand accent (primary)   — active, confirmed, primary action */
+  --color-accent-secondary: #FF2E63;  /* brand accent (secondary) — contextual emphasis, geography/metadata */
+  --color-status-pending:   #F5A623;  /* functional only — warning / pending / simulation labelling, not brand */
 
-  /* --- Foreground steps (derived from ivory only — never new hues) ------ */
-  --forge-ivory-70: rgba(245, 241, 233, 0.70);
-  --forge-ivory-55: rgba(245, 241, 233, 0.55);
-  --forge-ivory-12: rgba(245, 241, 233, 0.12);
+  /* --- Foreground steps (derived from ink only — never new hues) ------ */
+  --color-ink-70: rgba(245, 241, 233, 0.70);
+  --color-ink-55: rgba(245, 241, 233, 0.55);
+  --color-ink-12: rgba(245, 241, 233, 0.12);
 
   /* --- Typography ---------------------------------------------------------- */
   /* Poppins is the single face, Black (900) for headlines, sentence case. */
-  --forge-brand-font: 'Poppins', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-ui: 'Poppins', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   /* Display / headline face — Poppins Black, set sentence case at call sites. */
-  --forge-display-font: 'Poppins', var(--forge-brand-font);
+  --font-display: 'Poppins', var(--font-ui);
 }
 
-/* A branded surface. Everything inside speaks BUILD-D001:
-   - Poppins type system + ivory foreground on Forge Black
+/* A branded surface. Everything inside speaks the ElectionCanon system:
+   - Poppins type system + ink foreground on canvas black
    - the legacy geometry accent variables are remapped to the brand palette
      so var-driven primitives (geo-reg, geo-chevron, geo-notch, …) render in
      institutional colour with no cyan and no gold. */
-.forge-brand {
-  font-family: var(--forge-brand-font);
-  color: var(--forge-ivory);
-  --forge-gold: var(--forge-amber);
-  --forge-cyan: var(--forge-teal);
+.ec-brand {
+  font-family: var(--font-ui);
+  color: var(--color-ink);
+  --forge-gold: var(--color-status-pending);
+  --forge-cyan: var(--color-accent-primary);
 }
-.forge-brand h1,
-.forge-brand h2,
-.forge-brand h3 {
-  font-family: var(--forge-brand-font);
+.ec-brand h1,
+.ec-brand h2,
+.ec-brand h3 {
+  font-family: var(--font-ui);
   font-weight: 700;
   letter-spacing: -0.01em;
 }
 
 /* Institutional colour utilities (reusable — not one-offs). */
-.forge-fg-teal  { color: var(--forge-teal); }
-.forge-fg-amber { color: var(--forge-amber); }
-.forge-fg-pink  { color: var(--forge-pink); }
-.forge-fg-ivory { color: var(--forge-ivory); }
-.forge-fg-muted { color: var(--forge-ivory-55); }
+.ec-fg-teal  { color: var(--color-accent-primary); }
+.ec-fg-amber { color: var(--color-status-pending); }
+.ec-fg-pink  { color: var(--color-accent-secondary); }
+.ec-fg-ink   { color: var(--color-ink); }
+.ec-fg-muted { color: var(--color-ink-55); }

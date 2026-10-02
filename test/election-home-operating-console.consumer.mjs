@@ -94,11 +94,17 @@ const homeResponsibility = code("../src/pages/election/HomeResponsibility.jsx");
 const orgSection = code("../src/pages/election/OrganisationSection.jsx");
 const election = code("../src/pages/Election.jsx");
 const attention = code("../src/pages/election/attention.js");
+const uiStrings = code("../src/pages/election/uiStrings.js");
 
 console.log("\nB1. Recent responsibility changes: 'What Changed' only, never a duplicate alert");
 {
+  // PHASE 2 UI-STRING WIRING — the literal "What changed" heading is now
+  // t("home.whatChanged") (see uiStrings.js); check the JSX wires that key
+  // and that its English value is still the same copy, rather than
+  // matching a literal no longer present in HomeSection.jsx.
   ok("1. HomeSection builds a distinct responsibilityChanges/'What Changed' list from view.feed",
-     /responsibilityChanges/.test(homeSection) && /What changed/.test(homeSection));
+     /responsibilityChanges/.test(homeSection) && /t\(["']home\.whatChanged["']\)/.test(homeSection)
+     && /"home\.whatChanged":\s*"What changed"/.test(uiStrings));
   ok("2. attention.js's alert computation never reads RESPONSIBILITY.ASSIGNED/REASSIGNED off the feed — only real unresolved coverage/invitation state",
      !/RESPONSIBILITY\.(ASSIGNED|REASSIGNED)/.test(attention));
   ok("3. HomeSection never feeds its own responsibilityChanges/feed data into computeAttention() as a second alert source",

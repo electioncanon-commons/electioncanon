@@ -1,5 +1,5 @@
 // ============================================================
-// ELECTION FORGE — HOME  (Alpha 1.0 command centre)
+// ELECTIONCANON — HOME  (Alpha 1.0 command centre)
 //
 // Replaces the old DashboardSection. Every metric below is either read
 // straight off the Canon (readiness, mobilization, election day — all
@@ -35,29 +35,49 @@ import { listInvitations } from "../../domains/election/invitations/read.js";
 import { resolveMemberDisplayName } from "./OrganisationSection.jsx";
 import { CoverageCard, CoverageGapsPanel, ReassignResponsibilityPanel, ScopedWardsPanel, ScopedPollingUnitsPanel } from "./HomeResponsibility.jsx";
 import { resolveMyResponsibility, isScopedResponsibility } from "../../domains/election/responsibility.js";
-import { FORGE_CLIPS } from "../../os/geometry.js";
+import { CLIP_PATHS } from "../../os/geometry.js";
 import { computeAttention } from "./attention.js";
-import { Label, Panel, linkBtn, UI, DISPLAY, IVORY, MUTED, TEAL, AMBER, PINK, BLACK } from "./shared.jsx";
+import { Label, Panel, linkBtn, UI, DISPLAY, IVORY, MUTED, TEAL, AMBER, PINK, BLACK, BORDER } from "./shared.jsx";
+import { ContextualAsk } from "./AskAssistant.jsx";
+import { useTranslation } from "./useTranslation.js";
+
+// UX REDESIGN SLICE 5 — real, already-answerable example prompts only (the
+// same ones IntelligenceSection.jsx's own Ask panel has always advertised),
+// never a fabricated capability. See AskAssistant.jsx's own header.
+const OVERVIEW_PROMPTS = Object.freeze(["What should we do next?", "What office am I contesting?"]);
 
 const EMPTY_COVERAGE = Object.freeze({ established: false, constituencyId: null, constituencyCovered: false, lgas: [], wards: [], totalWards: 0, coveredWards: 0 });
 
 const TONE_COLOR = { danger: PINK, warning: AMBER };
 
-const NEXT_ACTION_BY_DIMENSION = Object.freeze({
-  CANDIDATE_REGISTERED: "Complete candidate registration.",
-  WARD_ASSIGNMENT: "Prepare your first ward.",
-  WARD_STATUS_HEALTH: "Report a ward's current status.",
-  OBSERVER_ASSIGNMENT: "Assign your first observer.",
+const NEXT_ACTION_KEY_BY_DIMENSION = Object.freeze({
+  CANDIDATE_REGISTERED: "home.nextActionCandidateRegistered",
+  WARD_ASSIGNMENT: "home.nextActionWardAssignment",
+  WARD_STATUS_HEALTH: "home.nextActionWardStatusHealth",
+  OBSERVER_ASSIGNMENT: "home.nextActionObserverAssignment",
 });
 
-function SummaryCard({ label, accent, children, onOpen, openLabel }) {
+// UX REDESIGN SLICE 2 — operational status as compact rows, not five
+// separate decorative cards. Same underlying data as before (readiness
+// claims, mobilization counts, comms/studio summaries, election-day
+// counts) — only the presentation changed, from a card grid to a single
+// list a user can scan without visually separated boxes competing for
+// attention with the Attention panel above it.
+function StatusRow({ label, accent, detail, onOpen, openLabel }) {
   return (
-    <div>
-      <Label>{label}</Label>
-      <Panel accent={accent}>
-        {children}
-        {onOpen && <button onClick={onOpen} style={{ ...linkBtn(), marginTop: 12 }}>{openLabel} →</button>}
-      </Panel>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 14,
+      flexWrap: "wrap", padding: "13px 0", borderBottom: `1px solid ${BORDER}` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 170 }}>
+        <span aria-hidden="true" style={{ width: 8, height: 8, background: accent, flexShrink: 0 }} />
+        <span style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.08em",
+          textTransform: "uppercase", color: IVORY }}>{label}</span>
+      </div>
+      <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED, flex: "1 1 260px", lineHeight: 1.6 }}>{detail}</div>
+      {onOpen && (
+        <button onClick={onOpen} aria-label={`${openLabel} — ${label}`} style={{ ...linkBtn(), flexShrink: 0 }}>
+          {openLabel} →
+        </button>
+      )}
     </div>
   );
 }
@@ -78,6 +98,7 @@ const RESPONSIBILITY_ROLE_LABEL = Object.freeze({
 });
 
 function MyScopeCard({ campaignId, userId, responsibility, onOpenChat }) {
+  const { t } = useTranslation();
   const [geographyName, setGeographyName] = useState(null);
   const [opening, setOpening] = useState(false);
 
@@ -107,7 +128,7 @@ function MyScopeCard({ campaignId, userId, responsibility, onOpenChat }) {
 
   return (
     <div style={{ gridColumn: "1 / -1" }}>
-      <Label>Your scope</Label>
+      <Label>{t("home.yourScope")}</Label>
       <Panel accent={TEAL}>
         <div style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: "clamp(18px,2.4vw,24px)", color: IVORY, marginBottom: 6 }}>
           {roleLabel}{geographyName ? ` — ${geographyName}` : ""}
@@ -118,7 +139,7 @@ function MyScopeCard({ campaignId, userId, responsibility, onOpenChat }) {
         <button onClick={openChat} disabled={opening}
           style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.12em",
             textTransform: "uppercase", padding: "12px 20px", border: "none", background: TEAL,
-            color: BLACK, cursor: opening ? "default" : "pointer", clipPath: FORGE_CLIPS.button, opacity: opening ? 0.6 : 1 }}>
+            color: BLACK, cursor: opening ? "default" : "pointer", clipPath: CLIP_PATHS.button, opacity: opening ? 0.6 : 1 }}>
           {opening ? "Opening…" : `Open ${levelLabel} Coordination Chat →`}
         </button>
       </Panel>
@@ -127,6 +148,7 @@ function MyScopeCard({ campaignId, userId, responsibility, onOpenChat }) {
 }
 
 export default function HomeSection({ ctx, onSection, campaignId: campaignIdProp, refresh, workspaceName, electionType }) {
+  const { t } = useTranslation();
   const [commsSummary, setCommsSummary] = useState(null);
   const [studioSummary, setStudioSummary] = useState(null);
   const [myUserId, setMyUserId] = useState(null);
@@ -335,9 +357,9 @@ export default function HomeSection({ ctx, onSection, campaignId: campaignIdProp
   // (myMemberRole actually fetched) — see that flag's own comment above.
   if (roleResolved && hasNoActiveResponsibility) {
     return (
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 18 }}>
+      <div role="region" aria-label="Election overview" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 18 }}>
         <div style={{ gridColumn: "1 / -1" }}>
-          <Label>Your election</Label>
+          <Label>{t("home.yourElection")}</Label>
           <Panel accent={TEAL}>
             <div style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: "clamp(20px,2.6vw,28px)", color: IVORY }}>
               {workspaceName || "Your election workspace"}
@@ -345,14 +367,13 @@ export default function HomeSection({ ctx, onSection, campaignId: campaignIdProp
           </Panel>
         </div>
         <div style={{ gridColumn: "1 / -1" }}>
-          <Label>No active responsibility</Label>
+          <Label>{t("home.noActiveResponsibility")}</Label>
           <Panel accent={AMBER}>
             <div style={{ fontFamily: UI, fontSize: 13, color: IVORY, lineHeight: 1.6, marginBottom: 8 }}>
-              No active responsibility was found for this account.
+              {t("home.noActiveResponsibilityBody1")}
             </div>
             <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED, lineHeight: 1.6 }}>
-              Contact your campaign owner if you believe this is a mistake — they can assign or reassign
-              a responsibility from Organisation or Territory.
+              {t("home.noActiveResponsibilityBody2")}
             </div>
           </Panel>
         </div>
@@ -381,7 +402,7 @@ export default function HomeSection({ ctx, onSection, campaignId: campaignIdProp
   const claims = ctx?.readiness?.claims ?? [];
   const complete = claims.filter((c) => c.status === STATUS.COMPLETE).length;
   const nextClaim = claims.find((c) => c.status !== STATUS.COMPLETE);
-  const nextAction = nextClaim ? (NEXT_ACTION_BY_DIMENSION[nextClaim.dimension] ?? "Review your readiness gaps.") : null;
+  const nextAction = nextClaim ? t(NEXT_ACTION_KEY_BY_DIMENSION[nextClaim.dimension] ?? "home.nextActionReviewGaps") : null;
 
   // ELECTIONCANON 1.1 HOME OPERATING CONSOLE — "What Changed", sourced ONLY
   // from view.feed (the already-computed, real Canon event feed —
@@ -455,10 +476,10 @@ export default function HomeSection({ ctx, onSection, campaignId: campaignIdProp
   const attentionAction = (index) => {
     if (index < uncoveredForActions.length) {
       const gap = uncoveredForActions[index];
-      return { label: "Invite someone", onClick: () => handleInvite({ level: gap.level, geographyRef: gap.geographyRef, role: gap.role, lgaId: gap.lgaId }) };
+      return { label: t("action.inviteSomeone"), onClick: () => handleInvite({ level: gap.level, geographyRef: gap.geographyRef, role: gap.role, lgaId: gap.lgaId }) };
     }
     if (index < pendingInviteAlertEnd) {
-      return { label: "Review", onClick: () => onSection("organisation") };
+      return { label: t("action.reviewHeading"), onClick: () => onSection("organisation") };
     }
     return null;
   };
@@ -479,15 +500,15 @@ export default function HomeSection({ ctx, onSection, campaignId: campaignIdProp
   const simulationStatus = pollingUnits.length === 0 ? "Not started" : agents.length === 0 ? "Polling units configured" : "Agents assigned";
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 18 }}>
+    <div role="region" aria-label="Election overview" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(280px,1fr))", gap: 18 }}>
       <div style={{ gridColumn: "1 / -1" }}>
-        <Label>Your election</Label>
+        <Label>{t("home.yourElection")}</Label>
         <Panel accent={TEAL}>
           <div style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: "clamp(20px,2.6vw,28px)", color: IVORY, marginBottom: 6 }}>
             {workspaceName || "Your election workspace"}
           </div>
           <div style={{ fontFamily: UI, fontSize: 12, color: MUTED, marginBottom: electionType ? 4 : 16 }}>
-            {ctx?.actorKind === ACTOR_KIND.OBSERVER_ORGANISATION ? "Observer / monitoring organisation" : "Candidate campaign"} · operating status: active
+            {ctx?.actorKind === ACTOR_KIND.OBSERVER_ORGANISATION ? t("home.observerOrgLabel") : t("home.candidateCampaignLabel")} · operating status: active
           </div>
           {electionType && (
             <div style={{ fontFamily: UI, fontSize: 12, color: TEAL, marginBottom: 16 }}>
@@ -497,21 +518,26 @@ export default function HomeSection({ ctx, onSection, campaignId: campaignIdProp
           {nextAction ? (
             <>
               <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 10, letterSpacing: "0.14em",
-                textTransform: "uppercase", color: AMBER, marginBottom: 6 }}>What to do next</div>
+                textTransform: "uppercase", color: AMBER, marginBottom: 6 }}>{t("home.whatToDoNext")}</div>
               <div style={{ fontFamily: UI, fontSize: 14, color: IVORY, marginBottom: 14 }}>{nextAction}</div>
               <button onClick={() => onSection("readiness")}
                 style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.12em",
                   textTransform: "uppercase", padding: "12px 20px", border: "none", background: TEAL,
-                  color: BLACK, cursor: "pointer", clipPath: FORGE_CLIPS.button }}>
-                Continue Preparation →
+                  color: BLACK, cursor: "pointer", clipPath: CLIP_PATHS.button }}>
+                {t("home.continuePreparation")}
               </button>
             </>
           ) : claims.length > 0 ? (
             <div style={{ fontFamily: UI, fontSize: 13, color: TEAL }}>
-              Every tracked readiness dimension is COMPLETE. Check Election Day for the next step.
+              {t("home.readinessAllComplete")}
             </div>
           ) : null}
         </Panel>
+      </div>
+
+      <div style={{ gridColumn: "1 / -1" }}>
+        <ContextualAsk triggerLabel="Ask about this picture" contextLabel="Overview"
+          suggestedPrompts={OVERVIEW_PROMPTS} view={view} onSection={onSection} />
       </div>
 
       {/* ELECTIONCANON 1.1.1 UX REFINEMENT PASS — moved above MyScopeCard/
@@ -535,22 +561,31 @@ export default function HomeSection({ ctx, onSection, campaignId: campaignIdProp
           ARE within their real authority. */}
       {!isScoped && (
         <div style={{ gridColumn: "1 / -1" }}>
-          <Label>What needs attention today</Label>
+          <Label>{t("home.whatNeedsAttention")}</Label>
           <Panel accent={attention.alerts.length ? PINK : TEAL}>
             {attention.alerts.length === 0 ? (
               <div style={{ fontFamily: UI, fontSize: 13, color: TEAL }}>
-                ALL CLEAR — nothing needs attention right now.
+                {t("home.allClear")}
               </div>
             ) : (
-              <div style={{ display: "grid", gap: 8 }}>
+              <div style={{ display: "grid", gap: 2 }}>
                 {attention.alerts.slice(0, 6).map((a, i) => {
                   const action = attentionAction(i);
+                  // STEP 9 ACCESSIBILITY — tone is a TEXT label (Urgent/Watch),
+                  // never color alone, even though the left border still
+                  // carries the same tone color for a sighted at-a-glance scan.
+                  const toneLabel = a.tone === "danger" ? t("home.toneUrgent") : t("home.toneWatch");
                   return (
-                    <div key={i} style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                      <span style={{ width: 6, height: 6, borderRadius: "50%", background: TONE_COLOR[a.tone] ?? AMBER, flexShrink: 0 }} />
+                    <div key={i} style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap",
+                      padding: "9px 0 9px 10px", borderLeft: `3px solid ${TONE_COLOR[a.tone] ?? AMBER}`,
+                      borderBottom: `1px solid ${BORDER}` }}>
+                      <span style={{ fontFamily: UI, fontWeight: 700, fontSize: 9, letterSpacing: "0.1em",
+                        textTransform: "uppercase", color: TONE_COLOR[a.tone] ?? AMBER, flexShrink: 0, minWidth: 44 }}>
+                        {toneLabel}
+                      </span>
                       <span style={{ fontFamily: UI, fontSize: 12.5, color: IVORY, flex: "1 1 auto" }}>{a.text}</span>
                       {action && (
-                        <button onClick={action.onClick}
+                        <button onClick={action.onClick} aria-label={`${action.label} — ${a.text}`}
                           style={{ fontFamily: UI, fontWeight: 700, fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase",
                             padding: "6px 12px", border: `1px solid ${TEAL}`, background: "transparent", color: TEAL, cursor: "pointer", flexShrink: 0 }}>
                           {action.label}
@@ -560,9 +595,43 @@ export default function HomeSection({ ctx, onSection, campaignId: campaignIdProp
                   );
                 })}
                 {attention.alerts.length > 6 && (
-                  <div style={{ fontFamily: UI, fontSize: 11, color: MUTED }}>+{attention.alerts.length - 6} more — see Intelligence for the full list.</div>
+                  <div style={{ fontFamily: UI, fontSize: 11, color: MUTED, paddingTop: 8 }}>+{attention.alerts.length - 6} more — see Intelligence for the full list.</div>
                 )}
               </div>
+            )}
+          </Panel>
+        </div>
+      )}
+
+      {/* UX REDESIGN SLICE 2 — "What changed" moved up to sit directly after
+          Attention (was previously below Coverage/gaps) so the Overview
+          answers WHERE AM I / WHAT NEEDS ATTENTION / WHAT CHANGED before a
+          user scrolls into coverage/status detail. Content and the exact
+          !isScoped gate are UNCHANGED — see this file's own header comment
+          on why a scoped coordinator has no authorized equivalent of this
+          campaign-wide feed to see. */}
+      {!isScoped && (
+        <div style={{ gridColumn: "1 / -1" }}>
+          <Label>{t("home.whatChanged")}</Label>
+          <Panel>
+            {recentChanges.length === 0 ? (
+              <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>{t("home.noActivityYet")}</div>
+            ) : (
+              <div style={{ display: "grid", gap: 8 }}>
+                {recentChanges.map((c, i) => (
+                  <div key={i} style={{ fontFamily: UI, fontSize: 12.5, color: IVORY }}>{c.text}</div>
+                ))}
+              </div>
+            )}
+            {/* UX REDESIGN SLICE 4 — the concise summary above and the full
+                Canon (EventsSection.jsx) read the SAME underlying event log;
+                this is a link to a more complete window onto it, not a
+                second computation. */}
+            {onSection && (
+              <button type="button" onClick={() => onSection("canon")}
+                style={{ ...linkBtn(), marginTop: 12 }}>
+                {t("home.viewAllEventsCanon")}
+              </button>
             )}
           </Panel>
         </div>
@@ -580,7 +649,7 @@ export default function HomeSection({ ctx, onSection, campaignId: campaignIdProp
           scope, so no additional panel renders for that role here. */}
       {isScoped && myResponsibility.responsibilityRole === "LGA_COORDINATOR" && (
         <div style={{ gridColumn: "1 / -1" }}>
-          <Label>Your wards</Label>
+          <Label>{t("home.yourWards")}</Label>
           {myScopedLoading && myWards.length === 0 ? (
             <Panel><div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>Loading your wards…</div></Panel>
           ) : (
@@ -598,7 +667,7 @@ export default function HomeSection({ ctx, onSection, campaignId: campaignIdProp
       )}
       {isScoped && myResponsibility.responsibilityRole === "WARD_COORDINATOR" && (
         <div style={{ gridColumn: "1 / -1" }}>
-          <Label>Your polling units</Label>
+          <Label>{t("home.yourPollingUnits")}</Label>
           {myScopedLoading && myPollingUnits.length === 0 ? (
             <Panel><div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>Loading your polling units…</div></Panel>
           ) : (
@@ -633,83 +702,32 @@ export default function HomeSection({ ctx, onSection, campaignId: campaignIdProp
         </div>
       ) : gapsOpen && !isScoped && (
         <div style={{ gridColumn: "1 / -1" }}>
-          <Label>Coverage — LGAs and wards</Label>
+          <Label>{t("home.coverageLgasWards")}</Label>
           <CoverageGapsPanel coverage={coverage} lgaNameById={lgaNameById} parentName={constituencyOrStateName ?? "—"}
             onInvite={handleInvite} onReassign={handleReassign} />
         </div>
       )}
 
-      {/* LOOP 5 HARDENING — recentChanges is built from view.feed and
-          allInvitations, both CAMPAIGN-WIDE reads (see this file's own
-          "What Changed" header comment above) — correct for owner/manager/
-          Constituency Lead, but the same class of leak "What needs
-          attention today" was gated for above: a scoped coordinator has no
-          authority over, and no need to see, another LGA/ward/PU's
-          reassignment history. There is no existing scoped equivalent of
-          this feed to fall back to (unlike attention, which already had
-          "Your wards"/"Your polling units" as a real scoped substitute), so
-          per Gate A's scoped-visibility principle this panel is simply
-          hidden for scoped viewers rather than partially/incorrectly
-          filtered. Same `!isScoped` gate as the panel above — no new flag. */}
-      {!isScoped && (
-        <div style={{ gridColumn: "1 / -1" }}>
-          <Label>What changed</Label>
-          <Panel>
-            {recentChanges.length === 0 ? (
-              <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>No organisational activity recorded yet.</div>
-            ) : (
-              <div style={{ display: "grid", gap: 8 }}>
-                {recentChanges.map((c, i) => (
-                  <div key={i} style={{ fontFamily: UI, fontSize: 12.5, color: IVORY }}>{c.text}</div>
-                ))}
-              </div>
-            )}
-          </Panel>
-        </div>
-      )}
-
-      <SummaryCard label="Readiness" accent={TEAL} onOpen={() => onSection("readiness")} openLabel="Open Readiness">
-        <div style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: 30, color: IVORY }}>
-          {claims.length ? `${complete} / ${claims.length}` : "No data yet"}
-        </div>
-        <div style={{ fontFamily: UI, fontSize: 11.5, color: MUTED, marginTop: 6 }}>tracked dimensions complete</div>
-      </SummaryCard>
-
-      <SummaryCard label="Mobilization" accent={PINK} onOpen={() => onSection("mobilize")} openLabel="Open Mobilize">
-        <div style={{ fontFamily: UI, fontSize: 12.5, color: IVORY, lineHeight: 1.9 }}>
-          {people.length} people · {wards.length} ward{wards.length === 1 ? "" : "s"}<br />
-          {outstandingAssignments} outstanding assignment{outstandingAssignments === 1 ? "" : "s"} · {openTasks} open task{openTasks === 1 ? "" : "s"}
-        </div>
-      </SummaryCard>
-
-      <SummaryCard label="Communications" accent={AMBER} onOpen={() => onSection("chat")} openLabel="Open Chat">
-        {commsSummary === null ? (
-          <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>No data yet</div>
-        ) : (
-          <div style={{ fontFamily: UI, fontSize: 12.5, color: IVORY, lineHeight: 1.9 }}>
-            {commsSummary.unread} unread message{commsSummary.unread === 1 ? "" : "s"}<br />
-            {commsSummary.rooms} active coordination room{commsSummary.rooms === 1 ? "" : "s"}
-          </div>
-        )}
-      </SummaryCard>
-
-      <SummaryCard label="Campaign Studio" accent={PINK} onOpen={() => onSection("studio")} openLabel="Open Studio">
-        {studioSummary === null ? (
-          <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>No data yet</div>
-        ) : (
-          <div style={{ fontFamily: UI, fontSize: 12.5, color: IVORY, lineHeight: 1.9 }}>
-            {studioSummary.drafts} draft{studioSummary.drafts === 1 ? "" : "s"} · {studioSummary.published} published · {studioSummary.scheduled} scheduled
-          </div>
-        )}
-      </SummaryCard>
-
-      <SummaryCard label="Election Day" accent={AMBER} onOpen={() => onSection("election-day")} openLabel="Open Election Day">
-        <div style={{ fontFamily: UI, fontSize: 12.5, color: IVORY, lineHeight: 1.9 }}>
-          Simulation status: {simulationStatus}<br />
-          {pollingUnits.length} polling unit{pollingUnits.length === 1 ? "" : "s"} · {agents.length} agent{agents.length === 1 ? "" : "s"}<br />
-          {verifiedResults} / {results.length} results verified · {openIncidents} open incident{openIncidents === 1 ? "" : "s"}
-        </div>
-      </SummaryCard>
+      {/* UX REDESIGN SLICE 2 — the five previous SummaryCard boxes
+          (Readiness/Mobilization/Communications/Studio/Election Day)
+          recomposed into one operational-status list. Every value below is
+          the exact same read/derivation this file already had — only the
+          presentation changed from five bordered cards to compact rows. */}
+      <div style={{ gridColumn: "1 / -1" }} role="region" aria-label="Operational status">
+        <Label>{t("home.operationalStatus")}</Label>
+        <Panel>
+          <StatusRow label={t("nav.readiness")} accent={TEAL} onOpen={() => onSection("readiness")} openLabel={t("action.openReadiness")}
+            detail={claims.length ? `${complete} / ${claims.length} tracked dimensions complete` : "No data yet"} />
+          <StatusRow label={t("home.mobilizationLabel")} accent={PINK} onOpen={() => onSection("mobilize")} openLabel={t("action.openMobilize")}
+            detail={`${people.length} people · ${wards.length} ward${wards.length === 1 ? "" : "s"} · ${outstandingAssignments} outstanding assignment${outstandingAssignments === 1 ? "" : "s"} · ${openTasks} open task${openTasks === 1 ? "" : "s"}`} />
+          <StatusRow label={t("chat.communications")} accent={AMBER} onOpen={() => onSection("chat")} openLabel={t("action.openChat")}
+            detail={commsSummary === null ? "No data yet" : `${commsSummary.unread} unread message${commsSummary.unread === 1 ? "" : "s"} · ${commsSummary.rooms} active coordination room${commsSummary.rooms === 1 ? "" : "s"}`} />
+          <StatusRow label={t("home.studioLabel")} accent={PINK} onOpen={() => onSection("studio")} openLabel={t("action.openStudio")}
+            detail={studioSummary === null ? "No data yet" : `${studioSummary.drafts} draft${studioSummary.drafts === 1 ? "" : "s"} · ${studioSummary.published} published · ${studioSummary.scheduled} scheduled`} />
+          <StatusRow label={t("home.electionDayLabel")} accent={AMBER} onOpen={() => onSection("election-day")} openLabel={t("action.openElectionDay")}
+            detail={`Simulation status: ${simulationStatus} · ${pollingUnits.length} polling unit${pollingUnits.length === 1 ? "" : "s"} · ${agents.length} agent${agents.length === 1 ? "" : "s"} · ${verifiedResults} / ${results.length} results verified · ${openIncidents} open incident${openIncidents === 1 ? "" : "s"}`} />
+        </Panel>
+      </div>
     </div>
   );
 }

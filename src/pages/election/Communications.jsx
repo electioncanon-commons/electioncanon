@@ -21,6 +21,7 @@ import { supabase } from "../../lib/supabase.js";
 import * as commsApi from "../../domains/election/communications/api.js";
 import { EXPORT_FORMAT_LIST, exportApprovedVariant } from "../../domains/election/communications/export.js";
 import { Label, Panel, StatusChip, friendlyError, downloadBlob, ensureCreativeFontsReady, UI, IVORY, MUTED, TEAL, AMBER, PINK, BORDER, BLACK, inputStyle } from "./shared.jsx";
+import { useTranslation } from "./useTranslation.js";
 
 // User-facing labels for language_variants.status — read directly from
 // the column, never inferred from reviews/approvals rows (Gate A.5.2's
@@ -79,6 +80,7 @@ function VariantHistory({ reviews, approvals, namesByPerson }) {
 }
 
 function VariantRow({ variant, reviews, approvals, namesByPerson, userId, isOwnerOrManager, myLanguages, onEdited, onAction }) {
+  const { t } = useTranslation();
   const languageLabel = commsApi.COMMUNICATION_LANGUAGES.find((l) => l.code === variant.language)?.label ?? variant.language;
   const [editText, setEditText] = useState(variant.text);
   const [reviewNotes, setReviewNotes] = useState("");
@@ -137,8 +139,8 @@ function VariantRow({ variant, reviews, approvals, namesByPerson, userId, isOwne
         )}
         {canRevoke && (
           <>
-            <input value={revokeReason} onChange={(e) => setRevokeReason(e.target.value)} placeholder="Reason for revoking…"
-              aria-label="Revocation reason" style={{ ...inputStyle, width: 220 }} />
+            <input value={revokeReason} onChange={(e) => setRevokeReason(e.target.value)} placeholder={t("comms.revocationReason")}
+              aria-label={t("comms.revocationReasonLabel")} style={{ ...inputStyle, width: 220 }} />
             <button disabled={busy || !revokeReason.trim()} style={smallBtn(PINK)}
               onClick={() => run(async () => { await onAction("revoke", { reason: revokeReason }); setRevokeReason(""); })}>
               Revoke approval
@@ -161,9 +163,9 @@ function VariantRow({ variant, reviews, approvals, namesByPerson, userId, isOwne
 
       {canReview && (
         <div style={{ marginTop: 8, padding: "8px 10px", border: `1px solid ${BORDER}` }}>
-          <div style={{ fontFamily: UI, fontSize: 10, color: MUTED, marginBottom: 4, textTransform: "uppercase" }}>Your review</div>
+          <div style={{ fontFamily: UI, fontSize: 10, color: MUTED, marginBottom: 4, textTransform: "uppercase" }}>{t("comms.yourReview")}</div>
           <textarea value={reviewNotes} onChange={(e) => setReviewNotes(e.target.value)} rows={2}
-            placeholder="Notes (required if rejecting)" aria-label="Review notes" style={{ ...inputStyle, resize: "vertical", marginBottom: 6 }} />
+            placeholder={t("comms.reviewNotes")} aria-label="Review notes" style={{ ...inputStyle, resize: "vertical", marginBottom: 6 }} />
           <div style={{ display: "flex", gap: 8 }}>
             <button disabled={busy} style={smallBtn(TEAL)}
               onClick={() => run(async () => { await onAction("review", { status: "approved", notes: reviewNotes || null }); setReviewNotes(""); })}>
@@ -183,6 +185,7 @@ function VariantRow({ variant, reviews, approvals, namesByPerson, userId, isOwne
 }
 
 function CommunicationDetail({ communication, studioAssets, userId, isOwnerOrManager, myLanguages, onChanged, onCommunicationUpdated }) {
+  const { t } = useTranslation();
   const [links, setLinks] = useState([]);
   const [variants, setVariants] = useState([]);
   const [reviewsByVariant, setReviewsByVariant] = useState({});
@@ -317,21 +320,21 @@ function CommunicationDetail({ communication, studioAssets, userId, isOwnerOrMan
       <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 14, color: IVORY, marginBottom: 10 }}>{communication.title}</div>
 
       <div style={{ marginBottom: 14 }}>
-        <div style={{ fontFamily: UI, fontSize: 10, color: MUTED, marginBottom: 3, textTransform: "uppercase" }}>Brief</div>
+        <div style={{ fontFamily: UI, fontSize: 10, color: MUTED, marginBottom: 3, textTransform: "uppercase" }}>{t("comms.brief")}</div>
         <textarea value={briefDraft} onChange={(e) => setBriefDraft(e.target.value)} rows={2}
-          aria-label="Brief" style={{ ...inputStyle, resize: "vertical", marginBottom: 3 }} />
-        <div style={{ fontFamily: UI, fontSize: 10.5, color: MUTED }}>Internal context for the communication. It is not itself reviewed or approved.</div>
+          aria-label={t("comms.brief")} style={{ ...inputStyle, resize: "vertical", marginBottom: 3 }} />
+        <div style={{ fontFamily: UI, fontSize: 10.5, color: MUTED }}>{t("comms.briefGuidance")}</div>
       </div>
 
       <div style={{ marginBottom: 14 }}>
-        <div style={{ fontFamily: UI, fontSize: 10, color: MUTED, marginBottom: 3, textTransform: "uppercase" }}>Master text</div>
+        <div style={{ fontFamily: UI, fontSize: 10, color: MUTED, marginBottom: 3, textTransform: "uppercase" }}>{t("comms.masterText")}</div>
         <textarea value={masterTextDraft} onChange={(e) => setMasterTextDraft(e.target.value)} rows={3}
-          aria-label="Master text" style={{ ...inputStyle, resize: "vertical", marginBottom: 3 }} />
+          aria-label={t("comms.masterText")} style={{ ...inputStyle, resize: "vertical", marginBottom: 3 }} />
         <div style={{ fontFamily: UI, fontSize: 10.5, color: MUTED }}>Working source text. Language variants are independent snapshots and do not change automatically when this text changes.</div>
       </div>
 
       {(briefDraft !== (communication.brief ?? "") || masterTextDraft !== (communication.master_text ?? "")) && (
-        <button onClick={onSaveContext} disabled={busy} style={{ ...solidBtn(TEAL), marginBottom: 14 }}>Save brief / master text</button>
+        <button onClick={onSaveContext} disabled={busy} style={{ ...solidBtn(TEAL), marginBottom: 14 }}>{t("action.saveBriefMasterText")}</button>
       )}
 
       <div style={{ marginTop: 4 }}>
@@ -339,18 +342,18 @@ function CommunicationDetail({ communication, studioAssets, userId, isOwnerOrMan
           Linked Studio assets
         </div>
         {links.length === 0
-          ? <div style={{ fontFamily: UI, fontSize: 12, color: MUTED, marginBottom: 8 }}>No assets attached yet.</div>
+          ? <div style={{ fontFamily: UI, fontSize: 12, color: MUTED, marginBottom: 8 }}>{t("comms.noAssetsAttached")}</div>
           : links.map((l) => {
               const asset = studioAssets.find((a) => a.id === l.asset_id);
               return <div key={l.asset_id} style={{ fontFamily: UI, fontSize: 12, color: IVORY, marginBottom: 4 }}>{asset?.title ?? l.asset_id}</div>;
             })}
         {attachableAssets.length > 0 && (
           <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-            <select value={attachAssetId} onChange={(e) => setAttachAssetId(e.target.value)} aria-label="Attach a Studio asset" style={inputStyle}>
-              <option value="">Attach a Studio asset…</option>
+            <select value={attachAssetId} onChange={(e) => setAttachAssetId(e.target.value)} aria-label={t("comms.attachAsset")} style={inputStyle}>
+              <option value="">{t("comms.attachAsset")}…</option>
               {attachableAssets.map((a) => <option key={a.id} value={a.id}>{a.title}</option>)}
             </select>
-            <button onClick={onAttach} disabled={busy || !attachAssetId} style={solidBtn(TEAL)}>Attach</button>
+            <button onClick={onAttach} disabled={busy || !attachAssetId} style={solidBtn(TEAL)}>{t("action.attach")}</button>
           </div>
         )}
       </div>
@@ -368,14 +371,14 @@ function CommunicationDetail({ communication, studioAssets, userId, isOwnerOrMan
             ))}
         {availableLanguages.length > 0 && (
           <div style={{ marginTop: 10 }}>
-            <select value={newLanguage} onChange={(e) => setNewLanguage(e.target.value)} aria-label="Add a language variant" style={{ ...inputStyle, marginBottom: 6 }}>
-              <option value="">Add a language variant…</option>
+            <select value={newLanguage} onChange={(e) => setNewLanguage(e.target.value)} aria-label={t("comms.addLanguageVariant")} style={{ ...inputStyle, marginBottom: 6 }}>
+              <option value="">{t("comms.addLanguageVariant")}…</option>
               {availableLanguages.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
             </select>
             <textarea value={newVariantText} onChange={(e) => setNewVariantText(e.target.value)} rows={3}
               placeholder="Manually authored, or pasted from an external translation — never machine-translated by this system"
-              aria-label="Variant text" style={{ ...inputStyle, resize: "vertical", marginBottom: 6 }} />
-            <button onClick={onAddVariant} disabled={busy || !newLanguage} style={solidBtn(TEAL)}>Add variant</button>
+              aria-label={t("comms.variantText")} style={{ ...inputStyle, resize: "vertical", marginBottom: 6 }} />
+            <button onClick={onAddVariant} disabled={busy || !newLanguage} style={solidBtn(TEAL)}>{t("action.addVariant")}</button>
           </div>
         )}
       </div>
@@ -386,6 +389,7 @@ function CommunicationDetail({ communication, studioAssets, userId, isOwnerOrMan
 }
 
 export default function CommunicationsPanel({ campaignId, userId, studioAssets }) {
+  const { t } = useTranslation();
   const [communications, setCommunications] = useState([]);
   const [selected, setSelected] = useState(null);
   const [newTitle, setNewTitle] = useState("");
@@ -432,28 +436,28 @@ export default function CommunicationsPanel({ campaignId, userId, studioAssets }
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(340px,1fr))", gap: 18 }}>
       <div>
-        <Label>Communications</Label>
+        <Label>{t("chat.communications")}</Label>
         <Panel>
           <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-            <input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder="New communication title"
-              aria-label="New communication title" style={inputStyle} />
-            <button onClick={onCreate} disabled={busy || !newTitle.trim()} style={solidBtn(TEAL)}>Create</button>
+            <input value={newTitle} onChange={(e) => setNewTitle(e.target.value)} placeholder={t("comms.newTitlePlaceholder")}
+              aria-label={t("comms.newTitlePlaceholder")} style={inputStyle} />
+            <button onClick={onCreate} disabled={busy || !newTitle.trim()} style={solidBtn(TEAL)}>{t("action.create")}</button>
           </div>
           {communications.length === 0
-            ? <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>No communications yet — create one to start planning.</div>
+            ? <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>{t("comms.noCommsYet")}</div>
             : communications.map((c) => <CommunicationRow key={c.id} communication={c} onOpen={setSelected} />)}
           {error && <div style={{ fontFamily: UI, fontSize: 12, color: PINK, marginTop: 10 }}>{friendlyError(error)}</div>}
         </Panel>
       </div>
       <div>
-        <Label>Detail</Label>
+        <Label>{t("comms.detailHeading")}</Label>
         {selected ? (
           <CommunicationDetail communication={selected} studioAssets={studioAssets} userId={userId}
             isOwnerOrManager={isOwnerOrManager} myLanguages={myLanguages}
             onChanged={load} onCommunicationUpdated={(updated) => { setSelected(updated); load(); }} />
         ) : (
           <Panel>
-            <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>Choose a communication to see its linked assets and language variants.</div>
+            <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>{t("comms.chooseCommGuidance")}</div>
           </Panel>
         )}
       </div>

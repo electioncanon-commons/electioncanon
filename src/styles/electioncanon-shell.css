@@ -1,0 +1,67 @@
+/* ============================================================
+   ELECTIONCANON SHELL — responsive navigation (UX Redesign Slice 1)
+
+   Breakpoint/drawer/focus rules for PrimaryNav
+   (src/pages/election/primitives.jsx). Colors come from the same
+   ElectionCanon design tokens forge-brand.css already defines (or inline
+   JS style, for pieces that need JS-computed colors) — no new hues here,
+   this file is layout/interaction only.
+   ============================================================ */
+
+.ec-nav-bar {
+  display: flex;
+  gap: 4px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--color-ink-12, rgba(245,241,233,.12));
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+
+.ec-nav-trigger {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  width: 40px;
+  height: 40px;
+}
+.ec-nav-trigger-bar {
+  display: block;
+  width: 18px;
+  height: 2px;
+}
+
+.ec-nav-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 1000;
+}
+.ec-nav-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(300px, 84vw);
+  overflow-y: auto;
+  z-index: 1001;
+}
+
+@media (max-width: 767px) {
+  .ec-nav-bar { display: none; }
+  .ec-nav-trigger { display: flex; }
+}
+
+/* Focus visibility — never rely on color alone for active/focus state.
+   Applies to every interactive element in the new shell chrome. */
+.ec-nav-item:focus-visible,
+.ec-nav-trigger:focus-visible,
+.ec-nav-drawer button:focus-visible {
+  outline: 2px solid var(--color-accent-primary, #0A7F73);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ec-nav-drawer { transition: transform .15s ease; }
+}

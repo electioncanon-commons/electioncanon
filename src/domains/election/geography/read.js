@@ -128,6 +128,52 @@ export async function listWardsForLga({ client, lgaId }) {
   return client.from("geography_wards").select("id, lga_id, name").eq("lga_id", lgaId).order("name");
 }
 
+// ROLE_SCOPE_03 — the set of geography ids a scoped responsibility legitimately
+// covers: itself plus every real descendant (an LGA covers its wards and
+// their polling units; a ward covers its polling units; a polling unit
+// covers only itself). This is READ-ONLY reference-geography traversal —
+// the exact same public geography_wards/geography_polling_units tables
+// listWardsForLga()/listPollingUnitsForWard() already read, no new source.
+// Callers (MobilizeSection.jsx, ElectionDaySection.jsx, AskAssistant.jsx)
+// use the returned Set to filter CAMPAIGN data (view.people/responsibilities/
+// events) by their own geographyRef — this function itself never touches
+// campaign data.
+// ROLE_SCOPE_03 — the real geography NAME for a scoped responsibility's
+// geographyRef. Election Operations' polling units are entered as free
+// TEXT state/lga/ward (see ElectionDaySection.jsx's own ADD_POLLING_UNIT
+// fields — a separate, explicitly-simulation dataset from geography_*, not
+// the same population getScopeGeographyRefs() above resolves ids for), so
+// scoping that surface means comparing against the real NAME, not an id.
+export async function getScopeGeographyName({ client, level, geographyRef }) {
+  if (!level || !geographyRef) return { data: null, error: null };
+  const table = level === "lga" ? "geography_lgas" : level === "ward" ? "geography_wards" : null;
+  if (!table) return { data: null, error: null };
+  const { data, error } = await client.from(table).select("name").eq("id", geographyRef).maybeSingle();
+  return { data: data?.name ?? null, error };
+}
+
+export async function getScopeGeographyRefs({ client, level, geographyRef }) {
+  if (!level || !geographyRef) return { data: new Set(), error: null };
+  if (level === "polling_unit") return { data: new Set([geographyRef]), error: null };
+
+  const refs = new Set([geographyRef]);
+  const wardIds = [];
+  if (level === "lga") {
+    const { data: wards, error } = await client.from("geography_wards").select("id").eq("lga_id", geographyRef);
+    if (error) return { data: refs, error };
+    for (const w of wards ?? []) { refs.add(w.id); wardIds.push(w.id); }
+  } else if (level === "ward") {
+    wardIds.push(geographyRef);
+  }
+
+  if (wardIds.length) {
+    const { data: pus, error } = await client.from("geography_polling_units").select("id").in("ward_id", wardIds);
+    if (error) return { data: refs, error };
+    for (const pu of pus ?? []) refs.add(pu.id);
+  }
+  return { data: refs, error: null };
+}
+
 export async function listPollingUnitsForWard({ client, wardId }) {
   if (!wardId) return { data: [], error: null };
   return client.from("geography_polling_units").select("id, ward_id, code, name").eq("ward_id", wardId).order("code");

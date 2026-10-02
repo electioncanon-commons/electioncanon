@@ -5,7 +5,12 @@
 // these. No standard border-radius cards.
 // ============================================================
 
-export const FORGE_CLIPS = {
+// UX REDESIGN SLICE 7 — renamed from FORGE_CLIPS. Same values, same shape;
+// this was a cosmetic identifier (a clip-path constant), not an
+// architectural one — see Slice 7's naming-audit report for why this was
+// classified RENAME SAFELY (6 known importers, all Election-facing pages,
+// no test asserts the old name).
+export const CLIP_PATHS = {
   panelBR:  'polygon(0 0, 100% 0, 100% calc(100% - 20px), calc(100% - 20px) 100%, 0 100%)',
   panelTR:  'polygon(0 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 0 100%)',
   panelTL:  'polygon(20px 0, 100% 0, 100% 100%, 0 100%, 0 20px)',
@@ -18,8 +23,8 @@ export const FORGE_CLIPS = {
 };
 
 export const forgePanel = (variant = 'panelBR', extra = {}) => ({
-  clipPath: FORGE_CLIPS[variant],
+  clipPath: CLIP_PATHS[variant],
   ...extra,
 });
 
-export default { FORGE_CLIPS, forgePanel };
+export default { CLIP_PATHS, forgePanel };

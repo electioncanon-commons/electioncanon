@@ -1,5 +1,5 @@
 // ============================================================
-// FORGE ELECTION — WEB SURFACE  (Alpha 1.0)
+// ELECTIONCANON — WEB SURFACE  (Alpha 1.0)
 //
 // ELECTION FORGE IS A SINGULAR PRODUCT. A person using this page should
 // never need to know Business Forge, Manufacturing Forge, or "Forge
@@ -16,7 +16,7 @@
 // domain/events/projections file's existing behavior.
 //
 // ALPHA 1.0 restructures the product shell around that unchanged Canon:
-// shared atoms (Label/Panel/StatusChip/WriteActionPanel/ForgeHeader/...)
+// shared atoms (Label/Panel/StatusChip/WriteActionPanel/AppHeader/...)
 // moved to ./election/shared.jsx so the new Mobilize/Chat/Campaign
 // Studio/Election Day/Intelligence sections can reuse them; those five
 // sections plus Home (replacing the old Dashboard) live in ./election/ as
@@ -35,7 +35,7 @@ import { useState, useCallback, useEffect } from "react";
 import { useNavigate, useLocation, Navigate } from "react-router-dom";
 import { supabase, isConfigured } from "../lib/supabase.js";
 import { useIdentity } from "../os/ForgeIdentity.jsx";
-import { FORGE_CLIPS } from "../os/geometry.js";
+import { CLIP_PATHS } from "../os/geometry.js";
 import { normalizeUrl } from "../lib/urlNormalize.js";
 import {
   readElectionCanon, activateElection, prepareElectionWrite, approveElectionWrite, WRITE_CHANNEL,
@@ -45,10 +45,12 @@ import { ELECTION_SCOPE } from "../os/electionScope.js";
 import { READINESS_DIMENSION_STATUS as STATUS } from "../domains/election/studio/readiness.js";
 import { listOffices, getConstituencyTerritory } from "../domains/election/geography/read.js";
 import {
-  ForgeHeader, WriteActionPanel, Label, Panel, ClaimRow, GapRow, NotStartedRow,
+  AppHeader, WriteActionPanel, Label, Panel, ClaimRow, GapRow, NotStartedRow,
   friendlyError, UI, DISPLAY, BLACK, IVORY, TEAL, AMBER, PINK, MUTED, BORDER, inputStyle,
   CAPABILITIES_AVAILABLE_NOW, CAPABILITIES_COMING_NEXT, parseCampaignTitle,
 } from "./election/shared.jsx";
+import { Shell } from "./election/primitives.jsx";
+import { LanguageProvider } from "./election/LanguageContext.jsx";
 import HomeSection from "./election/HomeSection.jsx";
 import TerritorySection from "./election/TerritorySection.jsx";
 import OrganisationSection from "./election/OrganisationSection.jsx";
@@ -57,6 +59,8 @@ import ChatSection from "./election/ChatSection.jsx";
 import CampaignStudioSection from "./election/CampaignStudioSection.jsx";
 import ElectionDaySection from "./election/ElectionDaySection.jsx";
 import IntelligenceSection from "./election/IntelligenceSection.jsx";
+import EventsSection from "./election/EventsSection.jsx";
+import { useTranslation } from "./election/useTranslation.js";
 
 /** Only these four words, ever, for a REAL Canon claim — the exact vocabulary deriveReadiness() uses. */
 const STATUS_COLOR = Object.freeze({
@@ -108,13 +112,14 @@ function ChoiceButton({ active, onClick, children }) {
       style={{ display: "block", width: "100%", textAlign: "left", fontFamily: UI,
         padding: "12px 14px", marginBottom: 8, cursor: "pointer",
         background: active ? "rgba(10,180,160,0.12)" : BLACK,
-        border: `1px solid ${active ? TEAL : BORDER}`, color: IVORY, clipPath: FORGE_CLIPS.buttonSm }}>
+        border: `1px solid ${active ? TEAL : BORDER}`, color: IVORY, clipPath: CLIP_PATHS.buttonSm }}>
       {children}
     </button>
   );
 }
 
 function WelcomeOnboarding({ onActivate, busy, error }) {
+  const { t } = useTranslation();
   const [step, setStep] = useState("welcome"); // "welcome" | "setup"
   const [actorKind, setActorKind] = useState(ACTOR_KIND.CANDIDATE_CAMPAIGN);
   const [electionType, setElectionType] = useState(null);
@@ -138,7 +143,7 @@ function WelcomeOnboarding({ onActivate, busy, error }) {
   if (step === "welcome") {
     return (
       <div style={{ maxWidth: 720 }}>
-        <Label>Welcome</Label>
+        <Label>{t("welcome.heading")}</Label>
         <Panel accent={AMBER}>
           <h1 style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: "clamp(24px,3.4vw,34px)",
             letterSpacing: "-0.03em", lineHeight: 1.15, margin: "0 0 14px", color: IVORY }}>
@@ -161,7 +166,7 @@ function WelcomeOnboarding({ onActivate, busy, error }) {
           <button onClick={() => setStep("setup")}
             style={{ fontFamily: UI, fontWeight: 700, fontSize: 12, letterSpacing: "0.12em",
               textTransform: "uppercase", padding: "13px 24px", border: "none",
-              background: AMBER, color: BLACK, cursor: "pointer", clipPath: FORGE_CLIPS.button }}>
+              background: AMBER, color: BLACK, cursor: "pointer", clipPath: CLIP_PATHS.button }}>
             Get Started →
           </button>
 
@@ -180,14 +185,14 @@ function WelcomeOnboarding({ onActivate, busy, error }) {
               gap: 14, marginTop: 16 }}>
               <div>
                 <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 10, letterSpacing: "0.14em",
-                  textTransform: "uppercase", color: TEAL, marginBottom: 8 }}>Available now</div>
+                  textTransform: "uppercase", color: TEAL, marginBottom: 8 }}>{t("welcome.availableNow")}</div>
                 <ul style={{ margin: 0, paddingLeft: 18, fontFamily: UI, fontSize: 12.5, color: IVORY, lineHeight: 1.9 }}>
                   {CAPABILITIES_AVAILABLE_NOW.map((c) => <li key={c}>{c}</li>)}
                 </ul>
               </div>
               <div>
                 <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 10, letterSpacing: "0.14em",
-                  textTransform: "uppercase", color: AMBER, marginBottom: 8 }}>Coming next</div>
+                  textTransform: "uppercase", color: AMBER, marginBottom: 8 }}>{t("welcome.comingNext")}</div>
                 <ul style={{ margin: 0, paddingLeft: 18, fontFamily: UI, fontSize: 12.5, color: MUTED, lineHeight: 1.9 }}>
                   {CAPABILITIES_COMING_NEXT.map((c) => <li key={c}>{c}</li>)}
                 </ul>
@@ -201,7 +206,7 @@ function WelcomeOnboarding({ onActivate, busy, error }) {
 
   return (
     <div style={{ maxWidth: 720 }}>
-      <Label>Set up your election workspace</Label>
+      <Label>{t("welcome.setUpWorkspace")}</Label>
       <Panel accent={AMBER}>
         <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED, lineHeight: 1.6, marginBottom: 22 }}>
           {isObserver
@@ -231,7 +236,7 @@ function WelcomeOnboarding({ onActivate, busy, error }) {
           aria-label={isObserver ? "Organisation name" : "Campaign name"}
           style={{ width: "100%", boxSizing: "border-box", fontFamily: DISPLAY, fontWeight: 700, fontSize: 17,
             padding: "15px 16px", background: BLACK, color: IVORY,
-            border: `2px solid ${AMBER}`, outline: "none", marginBottom: 8, clipPath: FORGE_CLIPS.buttonSm }} />
+            border: `2px solid ${AMBER}`, outline: "none", marginBottom: 8, clipPath: CLIP_PATHS.buttonSm }} />
         <div style={{ fontFamily: UI, fontSize: 11, color: MUTED, marginBottom: 24 }}>
           This is the name your team will see everywhere in ElectionCanon.
         </div>
@@ -246,7 +251,7 @@ function WelcomeOnboarding({ onActivate, busy, error }) {
               style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, padding: "8px 14px", cursor: "pointer",
                 background: electionType === t ? "rgba(10,180,160,0.12)" : BLACK,
                 border: `1px solid ${electionType === t ? TEAL : BORDER}`, color: IVORY,
-                clipPath: FORGE_CLIPS.buttonSm }}>
+                clipPath: CLIP_PATHS.buttonSm }}>
               {t}
             </button>
           ))}
@@ -261,13 +266,13 @@ function WelcomeOnboarding({ onActivate, busy, error }) {
             style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.12em",
               textTransform: "uppercase", padding: "13px 22px", border: "none",
               background: busy || !name.trim() ? BORDER : AMBER, color: busy || !name.trim() ? MUTED : BLACK,
-              cursor: busy || !name.trim() ? "not-allowed" : "pointer", clipPath: FORGE_CLIPS.button }}>
+              cursor: busy || !name.trim() ? "not-allowed" : "pointer", clipPath: CLIP_PATHS.button }}>
             {busy ? "Creating…" : "Create My Election Workspace →"}
           </button>
           <button onClick={() => setStep("welcome")} disabled={busy}
             style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.12em",
               textTransform: "uppercase", padding: "13px 18px", cursor: busy ? "not-allowed" : "pointer",
-              background: "transparent", color: MUTED, border: `1px solid ${BORDER}`, clipPath: FORGE_CLIPS.button }}>
+              background: "transparent", color: MUTED, border: `1px solid ${BORDER}`, clipPath: CLIP_PATHS.button }}>
             ← Back
           </button>
         </div>
@@ -320,6 +325,7 @@ function CountRow({ label, note }) {
 // used. A real Canon event is what gets recorded; nothing here fabricates
 // completion.
 function CandidateRegistrationPanel({ ctx, campaignId, refresh }) {
+  const { t } = useTranslation();
   const territory = ctx.view?.territory ?? null;
   const [officeName, setOfficeName] = useState(null);
   const [constituencyName, setConstituencyName] = useState(null);
@@ -390,23 +396,23 @@ function CandidateRegistrationPanel({ ctx, campaignId, refresh }) {
   return (
     <Panel accent={AMBER}>
       <div style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.14em",
-        textTransform: "uppercase", color: AMBER, marginBottom: 10 }}>Complete candidate registration</div>
+        textTransform: "uppercase", color: AMBER, marginBottom: 10 }}>{t("candidate.completeRegistration")}</div>
       <div style={{ fontFamily: UI, fontSize: 12, color: MUTED, marginBottom: 14, lineHeight: 1.6 }}>
         Office: <span style={{ color: IVORY }}>{officeName ?? "—"}</span><br />
         Constituency: <span style={{ color: IVORY }}>{constituencyName ?? "—"}</span>
-        <div style={{ marginTop: 4 }}>Already set on Territory — not asked again here.</div>
+        <div style={{ marginTop: 4 }}>{t("candidate.alreadySetOnTerritory")}</div>
       </div>
       {!prepared ? (
         <>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Candidate's full name"
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t("candidate.namePlaceholder")}
             aria-label="Candidate name" style={{ ...inputStyle, marginBottom: 9 }} />
-          <input value={party} onChange={(e) => setParty(e.target.value)} placeholder="Party"
-            aria-label="Party" style={{ ...inputStyle, marginBottom: 9 }} />
+          <input value={party} onChange={(e) => setParty(e.target.value)} placeholder={t("candidate.party")}
+            aria-label={t("candidate.party")} style={{ ...inputStyle, marginBottom: 9 }} />
           <button onClick={doPrepare} disabled={busy || !name.trim() || !party.trim()}
             style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.14em",
               textTransform: "uppercase", padding: "11px 18px", border: "none",
               background: busy || !name.trim() || !party.trim() ? BORDER : AMBER, color: BLACK,
-              cursor: busy || !name.trim() || !party.trim() ? "not-allowed" : "pointer", clipPath: FORGE_CLIPS.button }}>
+              cursor: busy || !name.trim() || !party.trim() ? "not-allowed" : "pointer", clipPath: CLIP_PATHS.button }}>
             {busy ? "Preparing…" : "Prepare"}
           </button>
         </>
@@ -421,14 +427,14 @@ function CandidateRegistrationPanel({ ctx, campaignId, refresh }) {
               style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.14em",
                 textTransform: "uppercase", padding: "11px 18px", border: "none",
                 background: busy ? BORDER : AMBER, color: BLACK,
-                cursor: busy ? "not-allowed" : "pointer", clipPath: FORGE_CLIPS.button }}>
+                cursor: busy ? "not-allowed" : "pointer", clipPath: CLIP_PATHS.button }}>
               {busy ? "Recording…" : "Approve"}
             </button>
             <button onClick={() => setPrepared(null)} disabled={busy}
               style={{ fontFamily: UI, fontWeight: 700, fontSize: 11, letterSpacing: "0.14em",
                 textTransform: "uppercase", padding: "11px 18px", cursor: "pointer",
                 background: "transparent", color: MUTED, border: `1px solid ${BORDER}`,
-                clipPath: FORGE_CLIPS.button }}>Cancel</button>
+                clipPath: CLIP_PATHS.button }}>Cancel</button>
           </div>
         </>
       )}
@@ -438,6 +444,7 @@ function CandidateRegistrationPanel({ ctx, campaignId, refresh }) {
 }
 
 function ReadinessSection({ ctx, campaignId, refresh }) {
+  const { t } = useTranslation();
   const byDim = Object.fromEntries(ctx.readiness.claims.map((c) => [c.dimension, c]));
   const view = ctx.view ?? {};
   const people = Object.values(view.people ?? {});
@@ -450,14 +457,14 @@ function ReadinessSection({ ctx, campaignId, refresh }) {
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(340px,1fr))", gap: 18 }}>
       <div>
-        <Label>Readiness claims (CANON)</Label>
+        <Label>{t("readiness.claimsHeading")}</Label>
         <Panel>
           {ctx.readiness.claims.map((c, i) => <ClaimRow key={i} claim={c} statusColor={STATUS_COLOR} />)}
         </Panel>
       </div>
 
       <div>
-        <Label>Known ward coverage</Label>
+        <Label>{t("readiness.knownWardCoverage")}</Label>
         <Panel accent={AMBER}>
           {ctx.readiness.knownWardCoverage ? (
             <>
@@ -482,7 +489,7 @@ function ReadinessSection({ ctx, campaignId, refresh }) {
 
       {ctx.readiness.gaps.length > 0 && (
         <div>
-          <Label>Gaps (CANON-derived)</Label>
+          <Label>{t("readiness.gapsHeading")}</Label>
           <Panel accent={PINK}>
             {ctx.readiness.gaps.map((g, i) => <GapRow key={i} gap={g} />)}
           </Panel>
@@ -511,7 +518,7 @@ function ReadinessSection({ ctx, campaignId, refresh }) {
       <div>
         <Label>2 · Legal / documentation</Label>
         <Panel>
-          <NotStartedRow label="REQUIRED_DOCUMENTS" note="Not yet tracked by ElectionCanon." />
+          <NotStartedRow label="REQUIRED_DOCUMENTS" note={t("readiness.notTrackedYet")} />
         </Panel>
       </div>
 
@@ -521,7 +528,7 @@ function ReadinessSection({ ctx, campaignId, refresh }) {
           {byDim.OBSERVER_ASSIGNMENT
             ? <ClaimRow claim={byDim.OBSERVER_ASSIGNMENT} statusColor={STATUS_COLOR} />
             : <NotStartedRow label="AGENTS / OBSERVERS" note="Not yet tracked for this actor kind." />}
-          <CountRow label="PEOPLE" note={people.length ? `${people.length} person${people.length === 1 ? "" : "s"} in the roster.` : "No people added yet — see Mobilize."} />
+          <CountRow label="PEOPLE" note={people.length ? t("readiness.countTemplate.people", { count: `${people.length} person${people.length === 1 ? "" : "s"}` }) : "No people added yet — see Mobilize."} />
         </Panel>
       </div>
 
@@ -534,28 +541,28 @@ function ReadinessSection({ ctx, campaignId, refresh }) {
           {byDim.WARD_STATUS_HEALTH
             ? <ClaimRow claim={byDim.WARD_STATUS_HEALTH} statusColor={STATUS_COLOR} />
             : <NotStartedRow label="WARD_STATUS_HEALTH" note="No ward status reported yet." />}
-          <CountRow label="WARD_COVERAGE" note={wards.length ? `${wards.length} ward${wards.length === 1 ? "" : "s"} known · ${wards.filter((w) => w.organisation).length} with a coordinator.` : "No wards recorded yet."} />
+          <CountRow label="WARD_COVERAGE" note={wards.length ? t("readiness.countTemplate.wards", { wardCount: `${wards.length} ward${wards.length === 1 ? "" : "s"}`, coordinatorCount: wards.filter((w) => w.organisation).length }) : "No wards recorded yet."} />
         </Panel>
       </div>
 
       <div>
         <Label>5 · Polling units</Label>
         <Panel>
-          <CountRow label="POLLING_UNITS" note={pollingUnits.length ? `${pollingUnits.length} polling unit${pollingUnits.length === 1 ? "" : "s"} configured. See Election Day.` : "Not yet tracked by ElectionCanon — see Election Day."} />
+          <CountRow label="POLLING_UNITS" note={pollingUnits.length ? t("readiness.countTemplate.pollingUnits", { count: `${pollingUnits.length} polling unit${pollingUnits.length === 1 ? "" : "s"}` }) : "Not yet tracked by ElectionCanon — see Election Day."} />
         </Panel>
       </div>
 
       <div>
         <Label>6 · Agents</Label>
         <Panel>
-          <CountRow label="AGENT_DEPLOYMENT" note={agents.length ? `${agents.length} agent${agents.length === 1 ? "" : "s"} assigned across polling units.` : "Not yet tracked by ElectionCanon — see Election Day."} />
+          <CountRow label="AGENT_DEPLOYMENT" note={agents.length ? t("readiness.countTemplate.agents", { count: `${agents.length} agent${agents.length === 1 ? "" : "s"}` }) : "Not yet tracked by ElectionCanon — see Election Day."} />
         </Panel>
       </div>
 
       <div>
         <Label>7 · Mobilization</Label>
         <Panel>
-          <CountRow label="ASSIGNMENTS_AND_TASKS" note={`${Object.keys(view.assignments ?? {}).length} assignment(s) · ${Object.keys(view.tasks ?? {}).length} task(s) recorded. See Mobilize.`} />
+          <CountRow label="ASSIGNMENTS_AND_TASKS" note={t("readiness.countTemplate.assignmentsTasks", { assignmentCount: Object.keys(view.assignments ?? {}).length, taskCount: Object.keys(view.tasks ?? {}).length })} />
         </Panel>
       </div>
 
@@ -569,16 +576,16 @@ function ReadinessSection({ ctx, campaignId, refresh }) {
       <div>
         <Label>9 · Election day</Label>
         <Panel>
-          <NotStartedRow label="ESCALATION_CONTACTS" note="Not yet tracked by ElectionCanon." />
-          <CountRow label="RESULT_CAPTURE" note={results.length ? `${results.length} simulated result(s) captured. See Election Day.` : "No results captured yet."} />
+          <NotStartedRow label="ESCALATION_CONTACTS" note={t("readiness.notTrackedYet")} />
+          <CountRow label="RESULT_CAPTURE" note={results.length ? t("readiness.countTemplate.results", { count: results.length }) : "No results captured yet."} />
         </Panel>
       </div>
 
       <div>
         <Label>10 · Evidence / incident preparedness</Label>
         <Panel>
-          <NotStartedRow label="CAMPAIGN_DOCUMENTS" note="Not yet tracked by ElectionCanon." />
-          <CountRow label="INCIDENT_LOG" note={incidents.length ? `${incidents.length} incident(s) logged, ${incidents.filter((i) => i.status !== "RESOLVED" && i.status !== "CLOSED").length} unresolved.` : "No incidents logged yet — see Election Day."} />
+          <NotStartedRow label="CAMPAIGN_DOCUMENTS" note={t("readiness.notTrackedYet")} />
+          <CountRow label="INCIDENT_LOG" note={incidents.length ? t("readiness.countTemplate.incidents", { count: incidents.length, unresolved: incidents.filter((i) => i.status !== "RESOLVED" && i.status !== "CLOSED").length }) : "No incidents logged yet — see Election Day."} />
         </Panel>
       </div>
 
@@ -604,8 +611,8 @@ function SettingsSection({ ctx, workspaceName }) {
 
 /** Per-section browser tab title — see the title-management effect below. */
 const TITLE_BY_SECTION = Object.freeze({
-  home: "Home", readiness: "Readiness", mobilize: "Mobilization", chat: "Chat",
-  studio: "Campaign Studio", "election-day": "Election Day", intelligence: "Intelligence", settings: "Settings",
+  home: "Overview", readiness: "Readiness", mobilize: "Work", chat: "Coordination",
+  studio: "Studio", "election-day": "Election Operations", intelligence: "Ask ElectionCanon", canon: "Canon", settings: "System",
 });
 
 // GATE A — labels for the one-time welcome banner's cosmetic role mention
@@ -647,7 +654,7 @@ export default function Election() {
   // PRE-LAUNCH UX CLEANUP PASS (P3) — the election type embedded in
   // campaigns.name's "[ElectionType] " prefix (see parseCampaignTitle()'s
   // own header in shared.jsx), split out once here so every existing
-  // consumer of `workspaceName` (ForgeHeader, Settings, Campaign Studio)
+  // consumer of `workspaceName` (AppHeader, Settings, Campaign Studio)
   // keeps receiving a clean campaign name with zero changes on their side.
   const [workspaceElectionType, setWorkspaceElectionType] = useState(null);
 
@@ -726,17 +733,12 @@ export default function Election() {
     await refresh();
   }, [refresh]);
 
-  const shell = (inner) => (
-    <div className="forge-brand" style={{ background: BLACK, color: IVORY, minHeight: "100vh",
-      padding: "clamp(28px,5vw,60px)", fontFamily: UI }}>
-      <div style={{ maxWidth: 1180, margin: "0 auto" }}>{inner}</div>
-    </div>
-  );
+  const shell = (inner) => <Shell><LanguageProvider>{inner}</LanguageProvider></Shell>;
 
   if (!configured) {
     return shell(
       <>
-        <ForgeHeader section={section} onSection={setSection} />
+        <AppHeader section={section} onSection={setSection} />
         <Panel accent={PINK}>
           <h1 style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: 28, letterSpacing: "-0.03em", margin: "0 0 10px" }}>
             ElectionCanon unavailable
@@ -766,11 +768,18 @@ export default function Election() {
   const isFirstRun = scopeOutcome === ELECTION_SCOPE.NONE;
   const campaignId = ctx?.scope?.campaignId ?? null;
   const userId = session?.user?.id ?? null;
+  // CONTEXT BAR — "where am I / what's my scope" from data Election.jsx
+  // already computes; no new read. The deeper "your assigned ward/LGA"
+  // answer stays in HomeSection's own async, geography-aware resolution
+  // for now (see primitives.jsx's ContextBar header comment).
+  const actorKindLabel = ACTOR_CHOICES.find((c) => c.kind === ctx?.actorKind)?.label ?? null;
+  const membershipRole = ctx?.scope?.role ?? null;
 
   return shell(
     <>
-      <ForgeHeader section={section} onSection={goToSection} campaignName={workspaceName}
-        onSignOut={signOut ? () => signOut() : null} showNav={!isFirstRun} />
+      <AppHeader section={section} onSection={goToSection} campaignName={workspaceName}
+        onSignOut={signOut ? () => signOut() : null} showNav={!isFirstRun}
+        actorKindLabel={actorKindLabel} membershipRole={membershipRole} />
 
       {isFirstRun && (
         <WelcomeOnboarding onActivate={doActivate} busy={activateBusy} error={activateError} />
@@ -788,7 +797,7 @@ export default function Election() {
             <button onClick={refresh} disabled={ctxLoading} style={{ fontFamily: UI, fontWeight: 700,
               fontSize: 10.5, letterSpacing: "0.14em", textTransform: "uppercase", padding: "9px 16px",
               cursor: ctxLoading ? "not-allowed" : "pointer", background: "transparent", color: MUTED,
-              border: `1px solid ${BORDER}`, clipPath: FORGE_CLIPS.button }}>
+              border: `1px solid ${BORDER}`, clipPath: CLIP_PATHS.button }}>
               {ctxLoading ? "Refreshing…" : "Refresh"}
             </button>
           </div>
@@ -819,13 +828,14 @@ export default function Election() {
           )}
           {section === "home" && <HomeSection ctx={ctx} onSection={goToSection} campaignId={campaignId} refresh={refresh} workspaceName={workspaceName} electionType={workspaceElectionType} />}
           {section === "territory" && <TerritorySection ctx={ctx} campaignId={campaignId} refresh={refresh} onSection={goToSection} />}
-          {section === "organisation" && <OrganisationSection ctx={ctx} campaignId={campaignId} refresh={refresh} inviteHint={inviteHint} onInviteHintConsumed={() => setInviteHint(null)} />}
+          {section === "organisation" && <OrganisationSection ctx={ctx} campaignId={campaignId} refresh={refresh} inviteHint={inviteHint} onInviteHintConsumed={() => setInviteHint(null)} onSection={goToSection} />}
           {section === "readiness" && <ReadinessSection ctx={ctx} campaignId={campaignId} refresh={refresh} />}
-          {section === "mobilize" && <MobilizeSection ctx={ctx} campaignId={campaignId} refresh={refresh} />}
+          {section === "mobilize" && <MobilizeSection ctx={ctx} campaignId={campaignId} userId={userId} refresh={refresh} onSection={goToSection} />}
           {section === "chat" && <ChatSection campaignId={campaignId} userId={userId} />}
           {section === "studio" && <CampaignStudioSection campaignId={campaignId} userId={userId} workspaceName={workspaceName} />}
-          {section === "election-day" && <ElectionDaySection ctx={ctx} campaignId={campaignId} userId={userId} refresh={refresh} />}
-          {section === "intelligence" && <IntelligenceSection ctx={ctx} campaignId={campaignId} refresh={refresh} />}
+          {section === "election-day" && <ElectionDaySection ctx={ctx} campaignId={campaignId} userId={userId} refresh={refresh} onSection={goToSection} />}
+          {section === "intelligence" && <IntelligenceSection ctx={ctx} campaignId={campaignId} userId={userId} refresh={refresh} onSection={goToSection} />}
+          {section === "canon" && <EventsSection ctx={ctx} campaignId={campaignId} onSection={goToSection} />}
           {section === "settings" && <SettingsSection ctx={ctx} workspaceName={workspaceName} />}
         </>
       )}

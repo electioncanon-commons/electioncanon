@@ -13,7 +13,7 @@
 // docs/ARCHITECTURE.md's evidence-architecture section.
 // ============================================================
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "../../lib/supabase.js";
 import { prepareElectionDayWrite, approveElectionDayWrite, ELECTION_DAY_OPERATION } from "../../os/electionWebAdapter.js";
 import {
@@ -22,7 +22,16 @@ import {
 } from "../../domains/election/electionDay/write.js";
 import { uploadResultEvidence, getResultEvidenceUrl, hashResultEvidence, compressResultEvidence } from "../../domains/election/electionDay/evidence.js";
 import { runOcrExtraction } from "../../domains/election/electionDay/ocr.js";
-import { Label, Panel, DemoTag, StructuredWritePanel, UI, IVORY, MUTED, TEAL, AMBER, PINK, BORDER, BLACK, inputStyle } from "./shared.jsx";
+import { computeAttention } from "./attention.js";
+import { resolveEffectiveScope } from "../../domains/election/responsibility.js";
+import { getScopeGeographyName } from "../../domains/election/geography/read.js";
+import { ContextualAsk } from "./AskAssistant.jsx";
+import { Label, Panel, DemoTag, StructuredWritePanel, UI, DISPLAY, IVORY, MUTED, TEAL, AMBER, PINK, BORDER, BLACK, inputStyle } from "./shared.jsx";
+import { useTranslation } from "./useTranslation.js";
+
+// UX REDESIGN SLICE 6 — real, already-answerable example prompts (see
+// IntelligenceSection.jsx's own advertised examples / AskAssistant.jsx).
+const OPERATIONS_PROMPTS = Object.freeze(["Show unresolved incidents", "Which result sheets have low OCR confidence?"]);
 
 const TABS = Object.freeze([
   { id: "coverage", label: "Coverage" },
@@ -63,6 +72,7 @@ function chip(color) {
 }
 
 function CoverageTab({ ctx, campaignId, refresh }) {
+  const { t } = useTranslation();
   const pollingUnits = Object.values(ctx.view?.pollingUnits ?? {});
   const agents = Object.values(ctx.view?.agents ?? {});
   const byState = {};
@@ -76,10 +86,10 @@ function CoverageTab({ ctx, campaignId, refresh }) {
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(340px,1fr))", gap: 18 }}>
       <div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-          <Label>Coverage — state / LGA / ward / polling unit</Label>
+          <Label>{t("electionDay.coverageHeading")}</Label>
         </div>
         <Panel>
-          <DemoTag label="Simulation / demonstration data — not official election results" />
+          <DemoTag label={t("electionDay.simDisclosure")} />
           <div style={{ marginTop: 12 }}>
             {pollingUnits.length === 0 ? <Empty>No polling units added yet.</Empty> : Object.entries(byState).map(([state, lgas]) => (
               <div key={state} style={{ marginBottom: 10 }}>
@@ -210,6 +220,7 @@ const UPLOAD_STATE = Object.freeze({
 });
 
 function CaptureResultPanel({ campaignId, userId, pollingUnits, results, refresh }) {
+  const { t } = useTranslation();
   const [pollingUnitId, setPollingUnitId] = useState(pollingUnits[0]?.id ?? "");
   const [file, setFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState(null);
@@ -299,7 +310,7 @@ function CaptureResultPanel({ campaignId, userId, pollingUnits, results, refresh
 
   return (
     <Panel accent={AMBER}>
-      <DemoTag label="Simulation content — real photo upload, not an official result" />
+      <DemoTag label={t("electionDay.simPhotoDisclosure")} />
       <div style={{ fontFamily: UI, fontSize: 11.5, color: MUTED, margin: "12px 0", lineHeight: 1.6 }}>
         The photo below is genuinely uploaded and preserved as evidence (private, tenant-isolated
         storage). Fields entered here are manual; once captured, you can run real OCR extraction
@@ -621,6 +632,7 @@ function OcrReviewPanel({ result, campaignId, refresh }) {
 }
 
 function ResultsTab({ ctx, campaignId, userId, refresh }) {
+  const { t } = useTranslation();
   const results = Object.values(ctx.view?.results ?? {});
   const pollingUnits = Object.values(ctx.view?.pollingUnits ?? {});
   const verifiedResults = results.filter((r) => r.verificationStatus === VERIFICATION_STATUS.VERIFIED);
@@ -628,9 +640,9 @@ function ResultsTab({ ctx, campaignId, userId, refresh }) {
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(340px,1fr))", gap: 18 }}>
       <div>
-        <Label>Results (simulation)</Label>
+        <Label>{t("electionDay.resultsHeading")}</Label>
         <Panel>
-          <DemoTag label="Simulated election data — not official results" />
+          <DemoTag label={t("electionDay.simResultsDisclosure")} />
           <div style={{ marginTop: 12 }}>
             {results.length === 0 ? <Empty>No results captured yet.</Empty> : results.map((r) => (
               <div key={r.id} style={{ padding: "9px 0", borderBottom: `1px solid ${BORDER}` }}>
@@ -782,15 +794,123 @@ function IncidentsTab({ ctx, campaignId, refresh }) {
   );
 }
 
-export default function ElectionDaySection({ ctx, campaignId, userId, refresh }) {
+// UX REDESIGN SLICE 6 — "Election Operations" framing. Reuses the EXACT
+// computeAttention() counts HomeSection.jsx/IntelligenceSection.jsx already
+// compute from this same folded view — no second attention engine, no new
+// calculation. Only the four counts that are genuinely Election Operations
+// facts are surfaced here (evidence review, OCR confidence, high-severity
+// incidents, agent coverage); the rest of computeAttention()'s output
+// (responsibility/coverage gaps) belongs to Overview/Places, not here.
+function OperationsAttention({ view }) {
+  const { counts } = computeAttention(view, []);
+  const items = [
+    counts.evidenceAwaitingReview > 0 && `${counts.evidenceAwaitingReview} evidence photo${counts.evidenceAwaitingReview === 1 ? "" : "s"} awaiting human review`,
+    counts.lowConfidenceOcr > 0 && `${counts.lowConfidenceOcr} result${counts.lowConfidenceOcr === 1 ? "" : "s"} with low-confidence OCR fields`,
+    counts.unresolvedHighSeverityIncidents > 0 && `${counts.unresolvedHighSeverityIncidents} unresolved high/critical incident${counts.unresolvedHighSeverityIncidents === 1 ? "" : "s"}`,
+    counts.pollingUnitsWithoutAgent > 0 && `${counts.pollingUnitsWithoutAgent} polling unit${counts.pollingUnitsWithoutAgent === 1 ? "" : "s"} with no agent`,
+  ].filter(Boolean);
+  return (
+    <div style={{ fontFamily: UI, fontSize: 12.5, color: items.length ? PINK : TEAL, lineHeight: 1.7 }}>
+      {items.length === 0 ? "Nothing in Election Operations needs attention right now." : items.join(" · ")}
+    </div>
+  );
+}
+
+// ROLE_SCOPE_03 — Election Operations' polling units are entered as free
+// TEXT state/lga/ward (see CoverageTab's ADD_POLLING_UNIT fields above) —
+// an explicitly-simulation dataset separate from real geography_* rows, so
+// scoping it means matching a scoped coordinator's real LGA/ward NAME
+// (resolved via getScopeGeographyName) against that free text, case/
+// whitespace-insensitively. `scopeName` null means campaign-wide (owner/
+// manager, or still resolving) — same fail-open-to-unscoped default every
+// other surface here uses while state is loading.
+//
+// Unlinked incidents (no pollingUnit, no linkedResult) are hidden from a
+// scoped viewer rather than guessed into or out of scope — mirrors
+// MobilizeSection.jsx's "an unassigned person has no known geography, so
+// only campaign-wide viewers see them" rule exactly.
+export function scopeElectionDayView(view, scopeName, scopeLevel) {
+  if (!scopeName) return view;
+  const norm = (s) => (typeof s === "string" ? s.trim().toLowerCase() : "");
+  const target = norm(scopeName);
+  const allPUs = Object.values(view.pollingUnits ?? {});
+  const matchedPUs = allPUs.filter((pu) => norm(scopeLevel === "lga" ? pu.lga : pu.ward) === target);
+  const pollingUnits = Object.fromEntries(matchedPUs.map((pu) => [pu.id, pu]));
+  const puIds = new Set(Object.keys(pollingUnits));
+  const agents = Object.fromEntries(Object.entries(view.agents ?? {}).filter(([, a]) => puIds.has(a.pollingUnit)));
+  const results = Object.fromEntries(Object.entries(view.results ?? {}).filter(([, r]) => puIds.has(r.pollingUnit)));
+  const resultIds = new Set(Object.keys(results));
+  const incidents = Object.fromEntries(Object.entries(view.incidents ?? {}).filter(([, i]) =>
+    (i.pollingUnit && puIds.has(i.pollingUnit)) || (i.linkedResult && resultIds.has(i.linkedResult))));
+  return { ...view, pollingUnits, agents, results, incidents };
+}
+
+export default function ElectionDaySection({ ctx, campaignId, userId, refresh, onSection }) {
+  const { t } = useTranslation();
   const [tab, setTab] = useState("coverage");
+  const [scopeName, setScopeName] = useState(null);
+  const [scopeLevel, setScopeLevel] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (!userId) { setScopeName(null); setScopeLevel(null); return undefined; }
+    (async () => {
+      const scope = await resolveEffectiveScope({ client: supabase, view: ctx.view, campaignId, userId });
+      if (cancelled) return;
+      if (scope.isCampaignWide || (scope.scopeLevel !== "lga" && scope.scopeLevel !== "ward")) {
+        setScopeName(null); setScopeLevel(null);
+        return;
+      }
+      const { data: name } = await getScopeGeographyName({ client: supabase, level: scope.scopeLevel, geographyRef: scope.scopeGeographyRef });
+      if (!cancelled) { setScopeName(name); setScopeLevel(scope.scopeLevel); }
+    })();
+    return () => { cancelled = true; };
+  }, [ctx.view, campaignId, userId]);
+
+  const view = scopeElectionDayView(ctx.view ?? {}, scopeName, scopeLevel);
+  const scopedCtx = { ...ctx, view };
   return (
     <div>
+      {/* UX REDESIGN SLICE 6 — first viewport answers WHERE AM I / WHAT
+          OPERATIONAL STATE / WHAT NEEDS ATTENTION / SIMULATION STATUS,
+          visible regardless of which tab below is selected — simulation
+          status must never be buried below the fold (this slice's own
+          Step 12). Reuses the SAME capability language already declared in
+          shared.jsx's CAPABILITIES_AVAILABLE_NOW/COMING_NEXT — no new claim
+          invented here. */}
+      <Label>{t("nav.electionDay")}</Label>
+      <Panel accent={AMBER} style={{ marginBottom: 18 }}>
+        <div style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: "clamp(18px,2.2vw,22px)", color: IVORY, marginBottom: 8 }}>
+          Coverage, agents, results and incidents for election day
+        </div>
+        <DemoTag label={t("electionDay.simDisclosure")} />
+        <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED, lineHeight: 1.6, margin: "12px 0" }}>
+          Election Day is one operational phase inside ElectionCanon's broader election-operations
+          capability — polling-unit coverage, agent deployment, result-sheet evidence capture with
+          OCR-assisted (never auto-verified) extraction, and incident reporting. Every fact below is
+          real Canon-backed data; the CONTENT is explicitly simulation/demonstration data, never an
+          official election result.
+        </div>
+        <OperationsAttention view={view} />
+        {onSection && (
+          <button type="button" onClick={() => onSection("canon")}
+            style={{ fontFamily: UI, fontWeight: 700, fontSize: 10.5, letterSpacing: "0.08em", textTransform: "uppercase",
+              color: TEAL, background: "transparent", border: "none", padding: 0, cursor: "pointer",
+              textDecoration: "underline", marginTop: 12, display: "inline-block" }}>
+            View recorded operational history — Canon →
+          </button>
+        )}
+      </Panel>
+
+      <div style={{ marginBottom: 16 }}>
+        <ContextualAsk triggerLabel="Ask about this operation" contextLabel="Election Operations"
+          suggestedPrompts={OPERATIONS_PROMPTS} view={view} onSection={onSection} />
+      </div>
+
       <SubNav tab={tab} setTab={setTab} />
-      {tab === "coverage" && <CoverageTab ctx={ctx} campaignId={campaignId} refresh={refresh} />}
-      {tab === "agents" && <AgentsTab ctx={ctx} campaignId={campaignId} refresh={refresh} />}
-      {tab === "results" && <ResultsTab ctx={ctx} campaignId={campaignId} userId={userId} refresh={refresh} />}
-      {tab === "incidents" && <IncidentsTab ctx={ctx} campaignId={campaignId} refresh={refresh} />}
+      {tab === "coverage" && <CoverageTab ctx={scopedCtx} campaignId={campaignId} refresh={refresh} />}
+      {tab === "agents" && <AgentsTab ctx={scopedCtx} campaignId={campaignId} refresh={refresh} />}
+      {tab === "results" && <ResultsTab ctx={scopedCtx} campaignId={campaignId} userId={userId} refresh={refresh} />}
+      {tab === "incidents" && <IncidentsTab ctx={scopedCtx} campaignId={campaignId} refresh={refresh} />}
     </div>
   );
 }
