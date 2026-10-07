@@ -27,11 +27,18 @@ transparent, auditable, and harder to manipulate quietly.
 
 ```bash
 npm install
-npm run dev       # http://localhost:5173 — demo mode with seed data if
-                   # no Supabase credentials are configured
+npm run dev       # http://localhost:5173
 npm run build      # production build
 npm test           # full test suite (plain Node scripts, no framework)
 ```
+
+Without configured Supabase credentials, the application does not
+fabricate a signed-in identity or campaign workspace — there is no fake
+signed-in user, since a demo identity would be a lie about who is
+accountable. It runs, and says plainly that there is no Election Canon to
+show until a real backend is configured. A separate synthetic
+demonstration environment may be provisioned explicitly against a real
+backend; it must not be confused with a real campaign.
 
 Copy `.env.example` to `.env` and fill in `VITE_SUPABASE_URL`/
 `VITE_SUPABASE_ANON_KEY` to run against a real backend. `supabase/schema`
