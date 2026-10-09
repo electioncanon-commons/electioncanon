@@ -245,6 +245,38 @@ events, it does not declare criminality.
   `launch_subscribe_attempts` (`20260922000000_election_launch_brevo_
   rate_limit.sql`), rate-limits the public signup endpoint — service-
   role-only, no RLS policy of any kind, not PII.
+- `src/domains/outreach/` + `src/pages/outreach/OutreachControlRoom.jsx`
+  (Outreach Activation 1.0) — a named, admin-only tracker for the
+  institutional/media/civic-tech/open-source letters ElectionCanon sends
+  directly, mounted at `/launch/outreach`. This is a SIXTH example of
+  "operational state, not event-sourced": `outreach_contacts` and
+  `outreach_followups` are mutable administrative records, while
+  `outreach_status_changes` is append-only history, same split as
+  `launch_subscribers`/`launch_analytics_events` above. Deliberately NOT
+  the same system as `src/domains/launch/` — that is an anonymous,
+  consent-based public signup funnel with no named recipients; this is
+  the opposite shape, a small list of real contacted organizations and
+  people. No shared table, function, or route between the two (see
+  `src/domains/outreach/model.js`'s own header). Access control reuses
+  the existing `LAUNCH_ADMIN_SECRET`-style shared-secret pattern (its own
+  `OUTREACH_ADMIN_SECRET`) rather than inventing a new auth system for
+  one admin surface — RLS is enabled with zero client policies on all
+  three tables (`20261008000000_election_outreach_activation.sql`), and
+  every read/write goes through `supabase/functions/outreach-admin/`.
+  Follow-ups go through an explicit DRAFT → REVIEW → APPROVED → SENT
+  workflow (`src/domains/outreach/followup.js`); "SENT" is a human
+  attestation, never a dispatch — no email provider is called anywhere
+  in this subsystem, by construction (no `fetch()` call exists in
+  `outreach-admin/index.ts` at all). `outreach_contacts.sender_account`
+  (closed to the two real outreach mailboxes plus `UNKNOWN`) and
+  `source_record_ref` (a free-text Gmail message id/permalink/search
+  description, or null) were added for the manual Launch Engine email
+  recovery when Google Takeout's phone verification could not be
+  completed — see `docs/OUTREACH-IMPORT.md` for the CSV template and
+  manual recovery steps. This never touches `launch_subscribers` or
+  `launch_analytics_events`; a historical outreach letter is recorded
+  here, not inserted into the public signup funnel as a fabricated
+  subscription or analytics event.
 
 ## What this document is not
 

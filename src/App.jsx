@@ -25,6 +25,8 @@ import LaunchAd03 from "./pages/launch/LaunchAd03.jsx";
 import LaunchConfirm from "./pages/launch/LaunchConfirm.jsx";
 import LaunchUnsubscribe from "./pages/launch/LaunchUnsubscribe.jsx";
 
+import OutreachControlRoom from "./pages/outreach/OutreachControlRoom.jsx";
+
 export default function App() {
   return (
     <ForgeIdentityProvider>
@@ -43,6 +45,7 @@ export default function App() {
         <Route path="/launch/ad03" element={<LaunchAd03 />} />
         <Route path="/launch/confirm" element={<LaunchConfirm />} />
         <Route path="/launch/unsubscribe" element={<LaunchUnsubscribe />} />
+        <Route path="/launch/outreach" element={<OutreachControlRoom />} />
       </Routes>
     </ForgeIdentityProvider>
   );

@@ -1,0 +1,3 @@
+organization,recipient,email,sector,country,campaign,subject,letter_version,date_sent,known_status,known_response,sender_account,source_record_ref,notes
+Example Media Org,Jane Doe,jane@example-media.org,media,Nigeria,launch_wave_1,Covering ElectionCanon's launch,v1,2026-09-15,sent,,admin@electioncanon.org,gmail-thread-id-or-permalink,
+Example Civic Tech Collective,,contact@example-civictech.org,civic_tech,,launch_wave_1,,v1,,,,sotinnovate@gmail.com,,Website: https://example-civictech.org
