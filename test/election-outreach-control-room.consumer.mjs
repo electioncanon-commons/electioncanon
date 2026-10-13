@@ -53,16 +53,46 @@ console.log("\nC — admin secret handling");
 
 console.log("\nD — all data access goes through src/domains/outreach/write.js (no direct fetch/invoke in the page)");
 {
-  ok("1. imports listOutreachContacts/listOutreachFollowUps/createOutreachContact/importOutreachContacts/updateOutreachContactStatus/createOutreachFollowUp/transitionOutreachFollowUp from write.js",
-     /from "\.\.\/\.\.\/domains\/outreach\/write\.js"/.test(pageCode));
+  ok("1. imports listOutreachContacts/listOutreachFollowUps/createOutreachContact/reconcileHistoricalImport/updateOutreachContactStatus/createOutreachFollowUp/transitionOutreachFollowUp from write.js",
+     /from "\.\.\/\.\.\/domains\/outreach\/write\.js"/.test(pageCode) && /reconcileHistoricalImport/.test(pageCode));
   ok("2. the page itself contains no fetch() call", !/\bfetch\(/.test(pageCode));
   ok("3. the page itself contains no client.functions.invoke call -- that lives only in write.js", !/functions\.invoke/.test(pageCode));
 }
 
-console.log("\nE — import tab reuses src/domains/outreach/import.js rather than re-parsing CSV inline");
+console.log("\nE — import tab reuses src/domains/outreach/import.js and historicalImport.js rather than re-parsing CSV inline or re-deriving its own reconciliation rules");
 {
-  ok("1. imports parseImportRows/normalizeImportRow/detectDuplicates from import.js", /from "\.\.\/\.\.\/domains\/outreach\/import\.js"/.test(pageCode));
-  ok("2. declares no second CSV-splitting regex/loop of its own", !/split\(","\)/.test(pageCode));
+  ok("1. imports parseImportRows from import.js", /parseImportRows[\s\S]{0,40}from "\.\.\/\.\.\/domains\/outreach\/import\.js"/.test(pageCode));
+  ok("2. imports planHistoricalReconciliation from historicalImport.js (the fix for the Phase 7 'duplicate_existing silently discarded' gap)",
+     /planHistoricalReconciliation[\s\S]{0,40}from "\.\.\/\.\.\/domains\/outreach\/historicalImport\.js"/.test(pageCode));
+  ok("3. declares no second CSV-splitting regex/loop of its own", !/split\(","\)/.test(pageCode));
+  ok("4. no longer imports normalizeImportRow/detectDuplicates directly (that logic now lives inside planHistoricalReconciliation, called once)",
+     !/\bnormalizeImportRow\b/.test(pageCode) && !/\bdetectDuplicates\b/.test(pageCode));
+}
+
+console.log("\nF — import feedback and double-submit protection (Phase 10 regression: import succeeded with no visible UI change)");
+{
+  ok("1. ImportView tracks a submitting flag", /const \[submitting, setSubmitting\] = useState\(false\)/.test(pageCode));
+  ok("2. runReconcile refuses to fire a second request while one is already in flight", /if \(submitting\) return;/.test(pageCode));
+  ok("3. the reconcile button is disabled while submitting", /disabled={submitting \|\| actionableCount === 0}/.test(pageCode));
+  ok("4. the reconcile button's label changes while submitting", /submitting \? "Reconciling…"/.test(pageCode));
+  ok("5. submitting is always reset via finally, even if onReconcile throws", /try {\s*const { toCreate, toAttachExisting, toAttachNewBatch }[\s\S]*?} finally {\s*setSubmitting\(false\);\s*}/.test(pageCode));
+  ok("6. a parent-level importBanner state exists, independent of ImportView's own local state", /const \[importBanner, setImportBanner\] = useState\(null\)/.test(pageCode));
+  ok("7. the importBanner is rendered outside the per-tab conditional blocks, so it survives switching tabs",
+     pageCode.indexOf("importBanner &&") < pageCode.indexOf('tab === "board"'));
+  ok("8. a successful reconciliation sets an ok:true banner naming the real created count", /setImportBanner\(\{ ok: true, message: `Reconciled: \$\{r\.created\}/.test(pageCode));
+  ok("9. a failed reconciliation (r.ok false) sets an ok:false banner with the real reason, not a generic message", /setImportBanner\(\{ ok: false, message: `Reconciliation failed: \$\{r\.error\}/.test(pageCode));
+  ok("10. the onReconcile wrapper catches a thrown/network exception rather than letting it propagate uncaught",
+     /onReconcile={async \(plan\) => {\s*try {[\s\S]*?} catch \(err\) {/.test(pageCode));
+  ok("11. the ambiguous-outcome message explicitly tells the user retrying is safe (each message is identified by its own source reference), rather than just warning them off retrying with no guidance",
+     /Re-running the same reconciliation is safe -- each historical message is identified by its own source reference/.test(pageCode));
+  ok("12. refresh(secret) still runs after reconciliation regardless of outcome (success, failure, or thrown exception)",
+     (pageCode.match(/refresh\(secret\);/g) || []).length >= 3);
+}
+
+console.log("\nG — ambiguous/invalid rows are reported with their real row index, not an index into a filtered sub-list (the original 'Row 1' mislabeling bug)");
+{
+  ok("1. needsReview rows are rendered using r.rowIndex, not the array-map index", /preview\.plan\.needsReview\.map\(\(r, i\) => \([\s\S]{0,80}Row \{r\.rowIndex \+ 1\}/.test(pageCode));
+  ok("2. invalid rows are rendered using r.rowIndex, not the array-map index", /preview\.plan\.invalid\.map\(\(r, i\) => \([\s\S]{0,80}Row \{r\.rowIndex \+ 1\}/.test(pageCode));
 }
 
 console.log(`\n${pass}/${pass + fail} assertions passed${fail ? ` — ${fail} FAILED` : ""}\n`);

@@ -28,6 +28,7 @@ const readSrc = (rel) => fs.readFileSync(path.join(root, rel), "utf8");
 const OUTREACH_DOMAIN_FILES = [
   "src/domains/outreach/model.js", "src/domains/outreach/followup.js", "src/domains/outreach/assets.js",
   "src/domains/outreach/import.js", "src/domains/outreach/learning.js", "src/domains/outreach/write.js",
+  "src/domains/outreach/reconcile.js", "src/domains/outreach/historicalImport.js",
 ];
 const OUTREACH_BACKEND_FILES = ["supabase/functions/outreach-admin/contract.mjs", "supabase/functions/outreach-admin/index.ts"];
 const LAUNCH_DOMAIN_FILES = ["src/domains/launch/write.js", "src/domains/launch/attribution.js"];

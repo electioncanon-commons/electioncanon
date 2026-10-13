@@ -129,6 +129,113 @@ export function validateImportRequest(body) {
   return { valid: true, error: null, contacts };
 }
 
+// ---------- historical import reconciliation (Phase 7 fix) ----------
+// Mirrors src/domains/outreach/historicalImport.js's note convention
+// exactly (this boundary cannot import src/, per this file's own header
+// -- same duplication discipline as every vocabulary above). A historical
+// event is identified only by this exact prefix; see hasHistoricalEvent().
+
+export const HISTORICAL_EVENT_PREFIX = "[historical_import:";
+export const MAX_HISTORICAL_BATCH = 500;
+
+export function hasHistoricalEvent(existingNotes, sourceRecordRef) {
+  if (!sourceRecordRef) return false;
+  const needle = `${HISTORICAL_EVENT_PREFIX}${sourceRecordRef}]`;
+  for (const note of existingNotes || []) {
+    if (typeof note === "string" && note.includes(needle)) return true;
+  }
+  return false;
+}
+
+function isPlainObject(v) { return v !== null && typeof v === "object" && !Array.isArray(v); }
+
+/** A historical event is optional (a brand-new DRAFT-only contact with no sentAt proposes none) but must be well-formed when present. */
+function validateHistoricalEvent(ev) {
+  if (ev == null) return { valid: true, error: null };
+  if (!isPlainObject(ev)) return { valid: false, error: "historicalEvent must be an object or null" };
+  if (!isNonEmptyString(ev.sourceRecordRef) || !boundedString(ev.sourceRecordRef, MAX_SHORT)) {
+    return { valid: false, error: "historicalEvent.sourceRecordRef is required" };
+  }
+  if (!isNonEmptyString(ev.note) || !boundedString(ev.note, 2000)) {
+    return { valid: false, error: "historicalEvent.note is required (max 2000 chars)" };
+  }
+  if (!PIPELINE_STATUS.includes(ev.fromStatus)) return { valid: false, error: `historicalEvent.fromStatus must be one of: ${PIPELINE_STATUS.join(", ")}` };
+  if (!PIPELINE_STATUS.includes(ev.toStatus)) return { valid: false, error: `historicalEvent.toStatus must be one of: ${PIPELINE_STATUS.join(", ")}` };
+  const transitionCheck = validateStatusTransition(ev.fromStatus, ev.toStatus);
+  if (!transitionCheck.valid) return { valid: false, error: `historicalEvent transition rejected: ${transitionCheck.error}` };
+  if (ev.changedAt != null) {
+    const d = new Date(ev.changedAt);
+    if (Number.isNaN(d.getTime())) return { valid: false, error: "historicalEvent.changedAt is not a valid date" };
+  }
+  return { valid: true, error: null };
+}
+
+/** Only an empty/UNKNOWN slot may ever be proposed as a patch target -- checked again server-side against the live row in index.ts before writing. */
+const CONTACT_PATCH_FIELDS = Object.freeze(["status", "sentAt", "deliveryStatus", "senderAccount", "sourceRecordRef", "subject", "campaign", "letterVersion", "country"]);
+
+function validateContactPatch(patch) {
+  if (patch == null) return { valid: true, error: null };
+  if (!isPlainObject(patch)) return { valid: false, error: "contactPatch must be an object or null" };
+  for (const key of Object.keys(patch)) {
+    if (!CONTACT_PATCH_FIELDS.includes(key)) return { valid: false, error: `contactPatch has an unexpected field: ${key}` };
+  }
+  if (patch.status !== undefined && !PIPELINE_STATUS.includes(patch.status)) return { valid: false, error: `contactPatch.status must be one of: ${PIPELINE_STATUS.join(", ")}` };
+  if (patch.deliveryStatus !== undefined && !DELIVERY_STATUS.includes(patch.deliveryStatus)) return { valid: false, error: `contactPatch.deliveryStatus must be one of: ${DELIVERY_STATUS.join(", ")}` };
+  if (patch.senderAccount !== undefined && !SENDER_ACCOUNT.includes(patch.senderAccount)) return { valid: false, error: `contactPatch.senderAccount must be one of: ${SENDER_ACCOUNT.join(", ")}` };
+  return { valid: true, error: null };
+}
+
+/**
+ * Validates the full historical-reconciliation request built by
+ * src/domains/outreach/historicalImport.js's planHistoricalReconciliation().
+ * toCreate: [{ contact, historicalEvent }]
+ * toAttachExisting: [{ existingContactId, contactPatch, historicalEvent }]
+ * toAttachNewBatch: [{ groupEmail, historicalEvent }] -- resolved against a
+ *   toCreate row sharing the same groupEmail, applied only after that
+ *   row's contact has actually been inserted (index.ts's job, not this
+ *   validator's).
+ */
+export function validateHistoricalReconcileRequest(body) {
+  const toCreate = body && typeof body === "object" ? body.toCreate : undefined;
+  const toAttachExisting = body && typeof body === "object" ? body.toAttachExisting : undefined;
+  const toAttachNewBatch = body && typeof body === "object" ? body.toAttachNewBatch : undefined;
+
+  if (toCreate !== undefined && !Array.isArray(toCreate)) return { valid: false, error: "toCreate must be an array" };
+  if (toAttachExisting !== undefined && !Array.isArray(toAttachExisting)) return { valid: false, error: "toAttachExisting must be an array" };
+  if (toAttachNewBatch !== undefined && !Array.isArray(toAttachNewBatch)) return { valid: false, error: "toAttachNewBatch must be an array" };
+
+  const create = toCreate || [];
+  const attachExisting = toAttachExisting || [];
+  const attachNewBatch = toAttachNewBatch || [];
+  const total = create.length + attachExisting.length + attachNewBatch.length;
+  if (total === 0) return { valid: false, error: "at least one of toCreate/toAttachExisting/toAttachNewBatch must contain a row" };
+  if (total > MAX_HISTORICAL_BATCH) return { valid: false, error: `at most ${MAX_HISTORICAL_BATCH} rows may be reconciled per request` };
+
+  for (const [i, row] of create.entries()) {
+    const payloadCheck = validateContactPayload(row?.contact);
+    if (!payloadCheck.valid) return { valid: false, error: `toCreate[${i}]: ${payloadCheck.error}` };
+    const eventCheck = validateHistoricalEvent(row?.historicalEvent);
+    if (!eventCheck.valid) return { valid: false, error: `toCreate[${i}]: ${eventCheck.error}` };
+    if (!isNonEmptyString(row?.groupEmail)) return { valid: false, error: `toCreate[${i}]: groupEmail is required` };
+  }
+  for (const [i, row] of attachExisting.entries()) {
+    if (!isNonEmptyString(row?.existingContactId)) return { valid: false, error: `toAttachExisting[${i}]: existingContactId is required` };
+    const patchCheck = validateContactPatch(row?.contactPatch);
+    if (!patchCheck.valid) return { valid: false, error: `toAttachExisting[${i}]: ${patchCheck.error}` };
+    const eventCheck = validateHistoricalEvent(row?.historicalEvent);
+    if (!eventCheck.valid) return { valid: false, error: `toAttachExisting[${i}]: ${eventCheck.error}` };
+    if (!row?.historicalEvent) return { valid: false, error: `toAttachExisting[${i}]: historicalEvent is required for an existing-contact attachment` };
+  }
+  for (const [i, row] of attachNewBatch.entries()) {
+    if (!isNonEmptyString(row?.groupEmail)) return { valid: false, error: `toAttachNewBatch[${i}]: groupEmail is required` };
+    const eventCheck = validateHistoricalEvent(row?.historicalEvent);
+    if (!eventCheck.valid) return { valid: false, error: `toAttachNewBatch[${i}]: ${eventCheck.error}` };
+    if (!row?.historicalEvent) return { valid: false, error: `toAttachNewBatch[${i}]: historicalEvent is required` };
+  }
+
+  return { valid: true, error: null, toCreate: create, toAttachExisting: attachExisting, toAttachNewBatch: attachNewBatch };
+}
+
 export function validateStatusTransition(fromStatus, toStatus) {
   if (!PIPELINE_STATUS.includes(fromStatus)) return { valid: false, error: `unknown current status: ${fromStatus}` };
   if (!PIPELINE_STATUS.includes(toStatus)) return { valid: false, error: `unknown target status: ${toStatus}` };
@@ -203,6 +310,8 @@ export function validateTransitionFollowUpRequest(body) {
 export default {
   SECTOR, PIPELINE_STATUS, STATUS_TRANSITIONS, DELIVERY_STATUS, ENGAGEMENT_STATUS, RESPONSE_STATUS,
   CONVERSATION_STATUS, SOURCE_OF_TRUTH, SENDER_ACCOUNT, ASSET_CODE, FOLLOWUP_STATE, FOLLOWUP_TRANSITIONS, MAX_IMPORT_BATCH,
+  HISTORICAL_EVENT_PREFIX, MAX_HISTORICAL_BATCH,
   validateContactPayload, validateListContactsRequest, validateImportRequest, validateStatusTransition,
   validateUpdateStatusRequest, validateCreateFollowUpRequest, validateFollowUpTransition, validateTransitionFollowUpRequest,
+  hasHistoricalEvent, validateHistoricalReconcileRequest,
 };

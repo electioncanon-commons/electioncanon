@@ -32,6 +32,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 import {
   validateContactPayload, validateListContactsRequest, validateImportRequest, validateStatusTransition,
   validateUpdateStatusRequest, validateCreateFollowUpRequest, validateFollowUpTransition, validateTransitionFollowUpRequest,
+  validateHistoricalReconcileRequest, hasHistoricalEvent,
 } from "./contract.mjs";
 
 const CORS = {
@@ -150,6 +151,143 @@ Deno.serve(async (req: Request) => {
     }
 
     return json({ ok: true, submitted: validation.contacts.length, imported, duplicate_existing: duplicateExisting, duplicate_in_batch: duplicateInBatch, invalid, failed });
+  }
+
+  if (action === "reconcile_historical_import") {
+    // THE FIX for the Phase 7 historical-import gap: a historical message
+    // whose recipient already has a contact record (client-classified as
+    // "duplicate_existing" by detectDuplicates()) is no longer silently
+    // discarded. It becomes an append-only outreach_status_changes row
+    // against the SAME contact -- never a second contact row for the same
+    // email (the unique index on lower(recipient_email) would reject that
+    // anyway), and never a change to a contact that has already moved past
+    // DRAFT in its real pipeline. See src/domains/outreach/
+    // historicalImport.js's own header for the full design and
+    // supabase/functions/outreach-admin/contract.mjs's
+    // validateHistoricalReconcileRequest() for the request shape.
+    //
+    // SERVER-SIDE RE-VALIDATION, NOT TRUST IN THE CLIENT'S PLAN. The client
+    // builds its plan from a Preview-time snapshot of outreach_contacts and
+    // outreach_status_changes, which can be stale by the time this request
+    // arrives (another import running concurrently, a human editing the
+    // contact in the meantime). Every contact this handles is re-read
+    // fresh immediately before any write, every idempotency check is
+    // re-run against freshly-read notes, and a contact that has moved past
+    // DRAFT since the client's snapshot is NEVER patched, even if the
+    // client proposed a patch -- only the historical event itself (a
+    // same-status no-op entry) is still recorded, because the message was
+    // still genuinely sent.
+    const validation = validateHistoricalReconcileRequest(body);
+    if (!validation.valid) return refuse(validation.error, "BAD_REQUEST", 400);
+
+    let created = 0, linkedExisting = 0, linkedNewBatch = 0, alreadyRecorded = 0, failed = 0;
+    const createdIdByEmail = new Map<string, string>();
+
+    // ---- phase 1: toCreate (brand-new contacts; at most one per groupEmail) ----
+    for (const row of validation.toCreate) {
+      const email = String(row.contact.recipientEmail).trim().toLowerCase();
+      const { data: existing, error: readError } = await supabase
+        .from("outreach_contacts").select("id").eq("recipient_email", email).maybeSingle();
+      if (readError) { failed++; continue; }
+      if (existing) {
+        // Someone else created this contact between preview and submit -- fall through to the
+        // existing-contact path for this one row rather than failing the whole request.
+        createdIdByEmail.set(String(row.groupEmail).trim().toLowerCase(), existing.id);
+        const { data: notesRows } = await supabase.from("outreach_status_changes").select("note").eq("contact_id", existing.id);
+        const existingNotes = (notesRows ?? []).map((r: { note: string | null }) => r.note).filter((n: string | null): n is string => !!n);
+        if (row.historicalEvent && !hasHistoricalEvent(existingNotes, row.historicalEvent.sourceRecordRef)) {
+          await supabase.from("outreach_status_changes").insert({
+            contact_id: existing.id, from_status: row.historicalEvent.fromStatus, to_status: row.historicalEvent.toStatus,
+            changed_at: row.historicalEvent.changedAt ?? new Date().toISOString(), note: row.historicalEvent.note,
+          });
+          linkedExisting++;
+        } else if (row.historicalEvent) {
+          alreadyRecorded++;
+        }
+        continue;
+      }
+
+      const { data: insertedContact, error: insertError } = await supabase
+        .from("outreach_contacts").insert(contactToRow(row.contact)).select("id").single();
+      if (insertError || !insertedContact) { failed++; continue; }
+      created++;
+      createdIdByEmail.set(String(row.groupEmail).trim().toLowerCase(), insertedContact.id);
+
+      if (row.historicalEvent) {
+        await supabase.from("outreach_status_changes").insert({
+          contact_id: insertedContact.id, from_status: row.historicalEvent.fromStatus, to_status: row.historicalEvent.toStatus,
+          changed_at: row.historicalEvent.changedAt ?? new Date().toISOString(), note: row.historicalEvent.note,
+        });
+      }
+    }
+
+    // ---- phase 2: toAttachExisting (contacts that already existed before this request) ----
+    for (const row of validation.toAttachExisting) {
+      const { data: contact, error: readError } = await supabase
+        .from("outreach_contacts").select("id, status, sent_at").eq("id", row.existingContactId).maybeSingle();
+      if (readError || !contact) { failed++; continue; }
+
+      const { data: notesRows } = await supabase.from("outreach_status_changes").select("note").eq("contact_id", contact.id);
+      const existingNotes = (notesRows ?? []).map((r: { note: string | null }) => r.note).filter((n: string | null): n is string => !!n);
+      if (hasHistoricalEvent(existingNotes, row.historicalEvent.sourceRecordRef)) { alreadyRecorded++; continue; }
+
+      // Re-derive from/to against the FRESH server-side status -- never trust the client's
+      // (possibly stale) fromStatus, and never apply a patch to a contact no longer DRAFT.
+      const stillUnsent = contact.status === "DRAFT" && !contact.sent_at;
+      const applyPatch = stillUnsent && row.contactPatch;
+      const toStatus = applyPatch ? "SENT" : contact.status;
+
+      if (applyPatch) {
+        const transitionCheck = validateStatusTransition(contact.status, toStatus);
+        if (!transitionCheck.valid) { failed++; continue; }
+        const updateFields: Record<string, unknown> = { updated_at: new Date().toISOString() };
+        if (row.contactPatch.status !== undefined) updateFields.status = row.contactPatch.status;
+        if (row.contactPatch.sentAt !== undefined) updateFields.sent_at = row.contactPatch.sentAt;
+        if (row.contactPatch.deliveryStatus !== undefined) updateFields.delivery_status = row.contactPatch.deliveryStatus;
+        if (row.contactPatch.senderAccount !== undefined) updateFields.sender_account = row.contactPatch.senderAccount;
+        if (row.contactPatch.sourceRecordRef !== undefined) updateFields.source_record_ref = row.contactPatch.sourceRecordRef;
+        if (row.contactPatch.subject !== undefined) updateFields.subject = row.contactPatch.subject;
+        if (row.contactPatch.campaign !== undefined) updateFields.campaign = row.contactPatch.campaign;
+        if (row.contactPatch.letterVersion !== undefined) updateFields.letter_version = row.contactPatch.letterVersion;
+        if (row.contactPatch.country !== undefined) updateFields.country = row.contactPatch.country;
+        const { error: updateError } = await supabase.from("outreach_contacts").update(updateFields).eq("id", contact.id);
+        if (updateError) { failed++; continue; }
+      }
+
+      await supabase.from("outreach_status_changes").insert({
+        contact_id: contact.id, from_status: contact.status, to_status: toStatus,
+        changed_at: row.historicalEvent.changedAt ?? new Date().toISOString(), note: row.historicalEvent.note,
+      });
+      linkedExisting++;
+    }
+
+    // ---- phase 3: toAttachNewBatch (second+ historical message to an email created in phase 1) ----
+    for (const row of validation.toAttachNewBatch) {
+      const email = String(row.groupEmail).trim().toLowerCase();
+      let contactId = createdIdByEmail.get(email);
+      if (!contactId) {
+        const { data: existing } = await supabase.from("outreach_contacts").select("id").eq("recipient_email", email).maybeSingle();
+        if (!existing) { failed++; continue; }
+        contactId = existing.id;
+      }
+      const { data: notesRows } = await supabase.from("outreach_status_changes").select("note").eq("contact_id", contactId);
+      const existingNotes = (notesRows ?? []).map((r: { note: string | null }) => r.note).filter((n: string | null): n is string => !!n);
+      if (hasHistoricalEvent(existingNotes, row.historicalEvent.sourceRecordRef)) { alreadyRecorded++; continue; }
+
+      const { data: contact } = await supabase.from("outreach_contacts").select("status").eq("id", contactId).maybeSingle();
+      const currentStatus = contact?.status ?? row.historicalEvent.fromStatus;
+      await supabase.from("outreach_status_changes").insert({
+        contact_id: contactId, from_status: currentStatus, to_status: currentStatus,
+        changed_at: row.historicalEvent.changedAt ?? new Date().toISOString(), note: row.historicalEvent.note,
+      });
+      linkedNewBatch++;
+    }
+
+    return json({
+      ok: true,
+      created, linked_existing: linkedExisting, linked_new_batch: linkedNewBatch,
+      already_recorded: alreadyRecorded, failed,
+    });
   }
 
   if (action === "update_contact_status") {

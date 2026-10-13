@@ -33,13 +33,14 @@ import {
 } from "../../domains/outreach/model.js";
 import { ASSET_CODE, ASSET_LABEL, defaultAssetCodeForContact, renderAsset } from "../../domains/outreach/assets.js";
 import { FOLLOWUP_TRANSITIONS } from "../../domains/outreach/followup.js";
-import { parseImportRows, normalizeImportRow, detectDuplicates } from "../../domains/outreach/import.js";
+import { parseImportRows } from "../../domains/outreach/import.js";
+import { planHistoricalReconciliation } from "../../domains/outreach/historicalImport.js";
 import {
   summarizeBySector, summarizeByLetterVersion, summarizeByAsset,
   listByEngagementFlag, listByConversationInterest, channelCoverageNote,
 } from "../../domains/outreach/learning.js";
 import {
-  listOutreachContacts, listOutreachFollowUps, createOutreachContact, importOutreachContacts,
+  listOutreachContacts, listOutreachFollowUps, createOutreachContact, reconcileHistoricalImport,
   updateOutreachContactStatus, createOutreachFollowUp, transitionOutreachFollowUp,
 } from "../../domains/outreach/write.js";
 
@@ -74,6 +75,7 @@ export default function OutreachControlRoom() {
   const [error, setError] = useState(null);
   const [tab, setTab] = useState("board"); // board | contacts | import | learning
   const [selectedId, setSelectedId] = useState(null);
+  const [importBanner, setImportBanner] = useState(null); // {ok, message} -- survives switching tabs, unlike ImportView's own local state
 
   const client = isConfigured ? supabase : null;
 
@@ -136,6 +138,11 @@ export default function OutreachControlRoom() {
       </div>
 
       {error && <div style={{ ...panelStyle, borderColor: PINK, color: PINK, fontSize: 12.5 }}>{error}</div>}
+      {importBanner && (
+        <div style={{ ...panelStyle, borderColor: importBanner.ok ? TEAL : PINK, color: importBanner.ok ? TEAL : PINK, fontSize: 12.5 }}>
+          {importBanner.message}
+        </div>
+      )}
       {loading && <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED, marginBottom: 16 }}>Loading…</div>}
 
       {tab === "board" && <BoardView contacts={contacts} followUps={followUps} selectedId={selectedId} setSelectedId={setSelectedId}
@@ -148,7 +155,25 @@ export default function OutreachControlRoom() {
         onTransitionFollowUp={async (followUpId, toState) => { const r = await transitionOutreachFollowUp({ client, adminSecret: secret, followUpId, toState }); if (!r.ok) setError(r.error); refresh(secret); }}
       />}
       {tab === "import" && <ImportView contacts={contacts}
-        onImport={async (normalizedContacts) => { const r = await importOutreachContacts({ client, adminSecret: secret, contacts: normalizedContacts }); if (!r.ok) setError(r.error); refresh(secret); return r; }}
+        onReconcile={async (plan) => {
+          try {
+            const r = await reconcileHistoricalImport({ client, adminSecret: secret, ...plan });
+            if (r.ok) {
+              setError(null);
+              setImportBanner({ ok: true, message: `Reconciled: ${r.created} new contact(s) · ${r.linkedExisting + r.linkedNewBatch} historical message(s) linked to existing contacts · ${r.alreadyRecorded} already recorded · ${r.failed} failed. Re-running the same reconciliation is safe -- each historical message is identified by its own source reference and is never recorded twice.` });
+            } else {
+              setError(r.error);
+              setImportBanner({ ok: false, message: `Reconciliation failed: ${r.error}. No contacts or historical events were written for this request.` });
+            }
+            refresh(secret);
+            return r;
+          } catch (err) {
+            const message = `The reconciliation request did not finish cleanly (${err?.message || "connection interrupted"}). It may have partially or fully completed on the server -- check the Contacts tab before deciding what to do. Re-running the same reconciliation is safe either way: each historical message is identified by its own source reference and is never recorded twice.`;
+            setImportBanner({ ok: false, message });
+            refresh(secret);
+            return { ok: false, error: message };
+          }
+        }}
       />}
       {tab === "learning" && <LearningView contacts={contacts} followUps={followUps} />}
     </div>
@@ -380,11 +405,12 @@ function ContactsView({ contacts, followUps, onCreate, onTransition, onCreateFol
   );
 }
 
-function ImportView({ contacts, onImport }) {
+function ImportView({ contacts, onReconcile }) {
   const [format, setFormat] = useState("csv");
   const [text, setText] = useState("");
   const [preview, setPreview] = useState(null);
   const [result, setResult] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const runPreview = () => {
     let parsed;
@@ -395,18 +421,25 @@ function ImportView({ contacts, onImport }) {
       return;
     }
     if (!parsed.valid) { setPreview(parsed); return; }
-    const normalized = parsed.rows.map((r) => normalizeImportRow(r));
-    const valid = normalized.filter((r) => r.valid).map((r) => r.contact);
-    const invalidRows = normalized.filter((r) => !r.valid);
-    const classified = detectDuplicates(valid, contacts.map(toCamelContact));
-    setPreview({ valid: true, classified, invalidRows });
+    const plan = planHistoricalReconciliation(parsed.rows, contacts.map(toCamelContact), {});
+    setPreview({ valid: true, plan });
   };
 
-  const runImport = async () => {
-    const toImport = preview.classified.filter((r) => r.classification === "new").map((r) => r.contact);
-    const r = await onImport(toImport);
-    setResult(r);
+  const runReconcile = async () => {
+    if (submitting) return; // already in flight -- never fire a second request on a second click
+    setSubmitting(true);
+    try {
+      const { toCreate, toAttachExisting, toAttachNewBatch } = preview.plan;
+      const r = await onReconcile({ toCreate, toAttachExisting, toAttachNewBatch });
+      setResult(r);
+    } finally {
+      setSubmitting(false);
+    }
   };
+
+  const actionableCount = preview?.valid
+    ? preview.plan.summary.newContacts + preview.plan.summary.linkedToExisting + preview.plan.summary.linkedToNewBatch
+    : 0;
 
   return (
     <div style={panelStyle}>
@@ -414,6 +447,9 @@ function ImportView({ contacts, onImport }) {
       <p style={{ fontSize: 12, color: MUTED, marginBottom: 10 }}>
         CSV columns: organization, recipient, email, sector, country, campaign, subject, letter_version, date_sent, known_status, known_response, sender_account, source_record_ref, notes.
         JSON: an array of objects with the same field names. Unknown values are left UNKNOWN — nothing is invented.
+        A row whose email already matches an existing contact is never turned into a second contact -- it is reconciled as a
+        historical message against that same contact (see historicalImport.js). A row with more than one address in its
+        email field is never auto-assigned -- it is always flagged for review.
       </p>
       <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
         <select style={inputStyle} value={format} onChange={(e) => setFormat(e.target.value)}>
@@ -429,22 +465,27 @@ function ImportView({ contacts, onImport }) {
       {preview?.valid && (
         <div style={{ marginTop: 14 }}>
           <div style={{ fontSize: 12.5, color: IVORY }}>
-            {preview.classified.filter((r) => r.classification === "new").length} new ·{" "}
-            {preview.classified.filter((r) => r.classification === "duplicate_in_batch").length} duplicate in batch ·{" "}
-            {preview.classified.filter((r) => r.classification === "duplicate_existing").length} duplicate of existing ·{" "}
-            {preview.invalidRows.length} invalid
+            {preview.plan.summary.newContacts} new contact(s) ·{" "}
+            {preview.plan.summary.linkedToExisting} linked to existing contacts ·{" "}
+            {preview.plan.summary.linkedToNewBatch} additional message(s) to a contact created in this same batch ·{" "}
+            {preview.plan.summary.alreadyRecorded} already recorded (safe to re-import) ·{" "}
+            {preview.plan.summary.needsReview} need review ·{" "}
+            {preview.plan.summary.invalid} invalid
           </div>
-          {preview.invalidRows.map((r, i) => (
-            <div key={i} style={{ fontSize: 11, color: PINK }}>Row {i + 1}: {r.error}</div>
+          {preview.plan.needsReview.map((r, i) => (
+            <div key={`review-${i}`} style={{ fontSize: 11, color: AMBER }}>Row {r.rowIndex + 1}: {r.reason}</div>
           ))}
-          <button style={{ ...buttonStyle(true), marginTop: 10 }} onClick={runImport}>
-            Import {preview.classified.filter((r) => r.classification === "new").length} new contacts
+          {preview.plan.invalid.map((r, i) => (
+            <div key={`invalid-${i}`} style={{ fontSize: 11, color: PINK }}>Row {r.rowIndex + 1}: {r.reason}</div>
+          ))}
+          <button style={{ ...buttonStyle(!submitting && actionableCount > 0), marginTop: 10 }} disabled={submitting || actionableCount === 0} onClick={runReconcile}>
+            {submitting ? "Reconciling…" : `Reconcile ${actionableCount} historical message(s)`}
           </button>
         </div>
       )}
       {result && (
         <div style={{ marginTop: 10, fontSize: 12, color: TEAL }}>
-          Imported {result.imported} · duplicates {result.duplicateExisting + result.duplicateInBatch} · invalid {result.invalid} · failed {result.failed}
+          Created {result.created} · linked to existing {result.linkedExisting + result.linkedNewBatch} · already recorded {result.alreadyRecorded} · failed {result.failed}
         </div>
       )}
     </div>

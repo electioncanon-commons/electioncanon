@@ -55,6 +55,20 @@ export async function importOutreachContacts({ client, adminSecret, contacts }) 
   return { ok: true, error: null, submitted, imported, duplicateExisting: duplicate_existing, duplicateInBatch: duplicate_in_batch, invalid, failed };
 }
 
+/**
+ * Submits a historical-import reconciliation plan built by
+ * planHistoricalReconciliation() (src/domains/outreach/historicalImport.js).
+ * Unlike importOutreachContacts(), this never discards a row whose email
+ * already matches an existing contact -- see that function's own header
+ * for the full "why".
+ */
+export async function reconcileHistoricalImport({ client, adminSecret, toCreate = [], toAttachExisting = [], toAttachNewBatch = [] }) {
+  const result = await invoke(client, adminSecret, { action: "reconcile_historical_import", toCreate, toAttachExisting, toAttachNewBatch });
+  if (!result.ok) return { ok: false, error: result.error };
+  const { created, linked_existing, linked_new_batch, already_recorded, failed } = result.data;
+  return { ok: true, error: null, created, linkedExisting: linked_existing, linkedNewBatch: linked_new_batch, alreadyRecorded: already_recorded, failed };
+}
+
 export async function updateOutreachContactStatus({ client, adminSecret, contactId, toStatus, note = null, fields = {} }) {
   const result = await invoke(client, adminSecret, { action: "update_contact_status", contactId, toStatus, note, ...fields });
   return result.ok ? { ok: true, error: null, contact: result.data.contact } : { ok: false, error: result.error, contact: null };
