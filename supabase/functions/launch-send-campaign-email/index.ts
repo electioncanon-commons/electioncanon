@@ -43,7 +43,7 @@
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { validateSendCampaignRequest, buildSequenceEmail, buildBrevoEmailRequest, interpretBrevoResponse } from "./contract.mjs";
+import { validateSendCampaignRequest, buildSequenceEmail, buildBrevoEmailRequest, interpretBrevoResponse, SEQUENCE_CONTENT_READY } from "./contract.mjs";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -81,6 +81,41 @@ Deno.serve(async (req: Request) => {
     body = await req.json();
   } catch {
     return refuse("request body is not valid JSON", "BAD_REQUEST", 400);
+  }
+
+  // READ-ONLY SUMMARY (Launch Engine closed-loop, Workspace A). Added so
+  // the harmonized control room (OutreachControlRoom.jsx) can show real
+  // confirmed/unsubscribed/sequence-sent counts for the public funnel,
+  // reusing the EXISTING LAUNCH_ADMIN_SECRET gate rather than inventing
+  // a new read endpoint/secret for one summary query. No subscriber row,
+  // email address, or any other PII is ever returned here -- counts
+  // only. Never touches SEQUENCE_CONTENT_READY or sends anything.
+  if (body && typeof body === "object" && (body as Record<string, unknown>).action === "get_summary") {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!supabaseUrl || !serviceKey) return refuse("supabase is not configured", "PROVIDER_NOT_CONFIGURED", 200);
+    const supabase = createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } });
+
+    const { data: rows, error } = await supabase.from("launch_subscribers").select("status, sequence_1_sent_at, sequence_2_sent_at, sequence_3_sent_at");
+    if (error) return refuse("could not read launch_subscribers", "PROVIDER_ERROR", 200);
+
+    const counts = { pending_confirmation: 0, confirmed: 0, unsubscribed: 0 };
+    let sequence1Sent = 0, sequence2Sent = 0, sequence3Sent = 0;
+    for (const row of rows ?? []) {
+      if (row.status in counts) (counts as Record<string, number>)[row.status]++;
+      if (row.sequence_1_sent_at) sequence1Sent++;
+      if (row.sequence_2_sent_at) sequence2Sent++;
+      if (row.sequence_3_sent_at) sequence3Sent++;
+    }
+
+    return json({
+      ok: true,
+      pendingConfirmation: counts.pending_confirmation,
+      confirmed: counts.confirmed,
+      unsubscribed: counts.unsubscribed,
+      sequence1Sent, sequence2Sent, sequence3Sent,
+      sequenceContentReady: SEQUENCE_CONTENT_READY,
+    });
   }
 
   const validation = validateSendCampaignRequest(body);

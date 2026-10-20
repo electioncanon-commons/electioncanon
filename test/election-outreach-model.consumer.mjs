@@ -20,7 +20,8 @@ console.log("\nOUTREACH ACTIVATION — core model\n");
 
 console.log("A — closed vocabularies");
 {
-  ok("1. SECTOR has exactly the Phase 5 sectors plus 'other'", SECTOR.length === 7 && SECTOR.includes("other"));
+  ok("1. SECTOR has exactly the Phase 5 sectors plus 'other', plus the Launch Engine closed-loop's six political-office categories",
+     SECTOR.length === 13 && SECTOR.includes("other") && SECTOR.includes("governorship_campaign") && SECTOR.includes("party_secretariat"));
   ok("2. PIPELINE_STATUS has exactly the 15 Phase 3 states", PIPELINE_STATUS.length === 15);
   ok("3. every PIPELINE_STATUS has a transition entry (possibly empty)", PIPELINE_STATUS.every((s) => Array.isArray(STATUS_TRANSITIONS[s])));
   ok("4. terminal statuses accept no outgoing transition", TERMINAL_PIPELINE_STATUS.every((s) => STATUS_TRANSITIONS[s].length === 0));

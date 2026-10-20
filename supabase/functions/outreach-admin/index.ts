@@ -33,6 +33,7 @@ import {
   validateContactPayload, validateListContactsRequest, validateImportRequest, validateStatusTransition,
   validateUpdateStatusRequest, validateCreateFollowUpRequest, validateFollowUpTransition, validateTransitionFollowUpRequest,
   validateHistoricalReconcileRequest, hasHistoricalEvent,
+  validateRecordMessageEventRequest, validateListMessageEventsRequest,
 } from "./contract.mjs";
 
 const CORS = {
@@ -376,6 +377,70 @@ Deno.serve(async (req: Request) => {
     }
 
     return json({ ok: true, followUp: updated });
+  }
+
+  if (action === "record_message_event") {
+    // THE EVIDENCE LAYER (Launch Engine closed-loop, Phase 3). This action
+    // NEVER sends anything -- it only records a fact that already
+    // happened: a message was prepared, a real provider confirmed a send
+    // (GMAIL, with a real message id), a human attested they personally
+    // sent one (MANUAL_ATTESTATION), or a reply arrived. The evidence
+    // rule from contract.mjs's validateRecordMessageEventRequest() is
+    // re-checked here against nothing the client can forge around -- a
+    // caller cannot claim activityState: 'SENT' from provider 'GMAIL'
+    // without a providerMessageId, full stop. Idempotent via the unique
+    // index on outreach_message_events.idempotency_key -- a duplicate
+    // key is NOT an error, it is reported as already-recorded so a
+    // retried request is always safe to repeat.
+    const validation = validateRecordMessageEventRequest(body);
+    if (!validation.valid) return refuse(validation.error, "BAD_REQUEST", 400);
+
+    const { data: contact } = await supabase.from("outreach_contacts").select("id").eq("id", validation.contactId).maybeSingle();
+    if (!contact) return refuse("contact not found", "NOT_FOUND", 404);
+    if (validation.followupId) {
+      const { data: followUp } = await supabase.from("outreach_followups").select("id").eq("id", validation.followupId).maybeSingle();
+      if (!followUp) return refuse("followupId does not refer to an existing follow-up", "NOT_FOUND", 404);
+    }
+
+    const { data: existing } = await supabase
+      .from("outreach_message_events").select("id").eq("idempotency_key", validation.idempotencyKey).maybeSingle();
+    if (existing) return json({ ok: true, event: null, alreadyRecorded: true });
+
+    const { data: inserted, error: insertError } = await supabase.from("outreach_message_events").insert({
+      contact_id: validation.contactId,
+      followup_id: validation.followupId,
+      direction: validation.direction,
+      activity_state: validation.activityState,
+      provider: validation.provider,
+      provider_message_id: validation.providerMessageId,
+      provider_thread_id: validation.providerThreadId,
+      rfc_message_id: validation.rfcMessageId,
+      in_reply_to: validation.inReplyTo,
+      references_header: validation.referencesHeader,
+      sender_identity: validation.senderIdentity,
+      recipient_email: validation.recipientEmail,
+      subject: validation.subject,
+      occurred_at: validation.occurredAt ?? new Date().toISOString(),
+      match_confidence: validation.matchConfidence,
+      idempotency_key: validation.idempotencyKey,
+    }).select("*").single();
+    // A unique-index collision from a race (two concurrent requests with
+    // the same idempotency key) surfaces here as a provider error rather
+    // than the maybeSingle() check above catching it first -- still safe,
+    // just reported less precisely; the row is never duplicated either way.
+    if (insertError) return refuse("could not record message event", "PROVIDER_ERROR", 200);
+    return json({ ok: true, event: inserted, alreadyRecorded: false });
+  }
+
+  if (action === "list_message_events") {
+    const validation = validateListMessageEventsRequest(body);
+    if (!validation.valid) return refuse(validation.error, "BAD_REQUEST", 400);
+    let query = supabase.from("outreach_message_events").select("*").order("occurred_at", { ascending: true });
+    if (validation.contactId) query = query.eq("contact_id", validation.contactId);
+    if (validation.followupId) query = query.eq("followup_id", validation.followupId);
+    const { data, error } = await query;
+    if (error) return refuse("could not read outreach_message_events", "PROVIDER_ERROR", 200);
+    return json({ ok: true, events: data ?? [] });
   }
 
   return refuse(`unknown action: ${action}`, "BAD_REQUEST", 400);

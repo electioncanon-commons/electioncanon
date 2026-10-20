@@ -33,6 +33,11 @@
 export const SECTOR = Object.freeze([
   "media", "civic_tech", "democracy_election_org", "development_org",
   "open_source_dev", "institutional_partner", "other",
+  // Political-office categories (Launch Engine closed-loop, Workspace B) --
+  // mirrors 20261014000000_election_outreach_message_activity.sql's
+  // expanded check constraint exactly.
+  "presidential_campaign", "governorship_campaign", "senate_campaign",
+  "house_of_reps_campaign", "state_assembly_campaign", "party_secretariat",
 ]);
 
 export const PIPELINE_STATUS = Object.freeze([
@@ -307,11 +312,73 @@ export function validateTransitionFollowUpRequest(body) {
   return { valid: true, error: null, followUpId, toState, approvedBy };
 }
 
+// ---------- message activity (Launch Engine closed-loop, Phase 3) ----------
+// Third independent copy of messageActivity.js's vocabulary -- same
+// belt-and-suspenders discipline as every other vocabulary in this file
+// (src/ cannot be imported from this Deno boundary).
+
+export const DIRECTION = Object.freeze(["OUTBOUND", "INBOUND"]);
+export const ACTIVITY_STATE = Object.freeze(["PREPARED", "SENT", "REPLY_RECEIVED"]);
+export const MESSAGE_PROVIDER = Object.freeze(["GMAIL", "BREVO", "MANUAL_ATTESTATION"]);
+export const MATCH_CONFIDENCE = Object.freeze(["HIGH_CONFIDENCE", "NEEDS_REVIEW"]);
+export const MAX_EVENT_BATCH = 100;
+
+/**
+ * Validates a record_message_event request. Re-enforces, server-side,
+ * the EXACT same evidence rule messageActivity.js's validateMessageEvent()
+ * enforces client-side: a SENT/REPLY_RECEIVED claim from a live provider
+ * must carry a real providerMessageId -- never trusted from the client
+ * alone, since a compromised or buggy caller could otherwise fabricate a
+ * SENT row with no real evidence behind it.
+ */
+export function validateRecordMessageEventRequest(body) {
+  const b = body && typeof body === "object" ? body : {};
+  if (!isNonEmptyString(b.contactId)) return { valid: false, error: "contactId is required" };
+  if (!DIRECTION.includes(b.direction)) return { valid: false, error: `direction must be one of: ${DIRECTION.join(", ")}` };
+  if (!ACTIVITY_STATE.includes(b.activityState)) return { valid: false, error: `activityState must be one of: ${ACTIVITY_STATE.join(", ")}` };
+  if (!MESSAGE_PROVIDER.includes(b.provider)) return { valid: false, error: `provider must be one of: ${MESSAGE_PROVIDER.join(", ")}` };
+  if (!isNonEmptyString(b.idempotencyKey) || !boundedString(b.idempotencyKey, 300)) {
+    return { valid: false, error: "idempotencyKey is required" };
+  }
+  if (b.direction === "INBOUND" && b.activityState !== "REPLY_RECEIVED") {
+    return { valid: false, error: "an INBOUND event must have activityState REPLY_RECEIVED" };
+  }
+  if (b.activityState !== "PREPARED" && b.provider !== "MANUAL_ATTESTATION" && !isNonEmptyString(b.providerMessageId)) {
+    return { valid: false, error: `a ${b.activityState} event from provider ${b.provider} requires a real providerMessageId` };
+  }
+  if (b.provider === "MANUAL_ATTESTATION" && !b.occurredAt) {
+    return { valid: false, error: "a MANUAL_ATTESTATION event requires occurredAt" };
+  }
+  if (b.followupId != null && !isNonEmptyString(b.followupId)) return { valid: false, error: "followupId must be a non-empty string when present" };
+  if (b.providerMessageId != null && !boundedString(b.providerMessageId, MAX_SHORT)) return { valid: false, error: "providerMessageId is too long" };
+  if (b.providerThreadId != null && !boundedString(b.providerThreadId, MAX_SHORT)) return { valid: false, error: "providerThreadId is too long" };
+  if (b.rfcMessageId != null && !boundedString(b.rfcMessageId, 500)) return { valid: false, error: "rfcMessageId is too long" };
+  if (b.senderIdentity != null && !SENDER_ACCOUNT.includes(b.senderIdentity)) return { valid: false, error: `senderIdentity must be one of: ${SENDER_ACCOUNT.join(", ")}` };
+  if (b.matchConfidence !== undefined && !MATCH_CONFIDENCE.includes(b.matchConfidence)) return { valid: false, error: `matchConfidence must be one of: ${MATCH_CONFIDENCE.join(", ")}` };
+  if (b.occurredAt != null && Number.isNaN(new Date(b.occurredAt).getTime())) return { valid: false, error: "occurredAt is not a valid date" };
+
+  return {
+    valid: true, error: null,
+    contactId: b.contactId, followupId: b.followupId ?? null, direction: b.direction, activityState: b.activityState,
+    provider: b.provider, providerMessageId: b.providerMessageId ?? null, providerThreadId: b.providerThreadId ?? null,
+    rfcMessageId: b.rfcMessageId ?? null, inReplyTo: b.inReplyTo ?? null, referencesHeader: b.referencesHeader ?? null,
+    senderIdentity: b.senderIdentity ?? "UNKNOWN", recipientEmail: b.recipientEmail ?? null, subject: b.subject ?? null,
+    occurredAt: b.occurredAt ?? null, matchConfidence: b.matchConfidence ?? "HIGH_CONFIDENCE", idempotencyKey: b.idempotencyKey,
+  };
+}
+
+export function validateListMessageEventsRequest(body) {
+  const b = body && typeof body === "object" ? body : {};
+  if (b.contactId != null && !isNonEmptyString(b.contactId)) return { valid: false, error: "contactId must be a non-empty string when present" };
+  if (b.followupId != null && !isNonEmptyString(b.followupId)) return { valid: false, error: "followupId must be a non-empty string when present" };
+  return { valid: true, error: null, contactId: b.contactId ?? null, followupId: b.followupId ?? null };
+}
+
 export default {
   SECTOR, PIPELINE_STATUS, STATUS_TRANSITIONS, DELIVERY_STATUS, ENGAGEMENT_STATUS, RESPONSE_STATUS,
   CONVERSATION_STATUS, SOURCE_OF_TRUTH, SENDER_ACCOUNT, ASSET_CODE, FOLLOWUP_STATE, FOLLOWUP_TRANSITIONS, MAX_IMPORT_BATCH,
-  HISTORICAL_EVENT_PREFIX, MAX_HISTORICAL_BATCH,
+  HISTORICAL_EVENT_PREFIX, MAX_HISTORICAL_BATCH, DIRECTION, ACTIVITY_STATE, MESSAGE_PROVIDER, MATCH_CONFIDENCE, MAX_EVENT_BATCH,
   validateContactPayload, validateListContactsRequest, validateImportRequest, validateStatusTransition,
   validateUpdateStatusRequest, validateCreateFollowUpRequest, validateFollowUpTransition, validateTransitionFollowUpRequest,
-  hasHistoricalEvent, validateHistoricalReconcileRequest,
+  hasHistoricalEvent, validateHistoricalReconcileRequest, validateRecordMessageEventRequest, validateListMessageEventsRequest,
 };

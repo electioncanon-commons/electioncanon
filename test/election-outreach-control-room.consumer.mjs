@@ -95,5 +95,30 @@ console.log("\nG — ambiguous/invalid rows are reported with their real row ind
   ok("2. invalid rows are rendered using r.rowIndex, not the array-map index", /preview\.plan\.invalid\.map\(\(r, i\) => \([\s\S]{0,80}Row \{r\.rowIndex \+ 1\}/.test(pageCode));
 }
 
+console.log("\nH — Workspace A/B harmonization (Launch Engine closed-loop, Phase 2)");
+{
+  ok("1. a WorkspaceSwitcher distinguishes Workspace A (public launch) from Workspace B (direct outreach)",
+     /A — Public launch distribution/.test(pageCode) && /B — Direct outreach/.test(pageCode));
+  ok("2. Workspace A uses a SEPARATE secret (launchSecret), never merged with the outreach secret",
+     /launchSecret/.test(pageCode) && /launchSecretInput/.test(pageCode) && /const \[secret, setSecret\]/.test(pageCode));
+  ok("3. Workspace A reads via getLaunchSummary (read-only, no subscriber row/email ever requested)",
+     /getLaunchSummary\(/.test(pageCode) && !/subscriber\.email|recipient_email.*launch/i.test(pageCode));
+  ok("4. the activity tab is one of the real tabs, not decorative", /"board", "contacts", "import", "activity", "learning"/.test(pageCode));
+  ok("5. ActivityView renders the four truthful states via computeActivitySummary, never a single fabricated count",
+     /computeActivitySummary\(events\)/.test(pageCode));
+  ok("6. 'Record a manual send' is ALWAYS enabled regardless of Gmail connection status (manual outreach is never blocked)",
+     /buttonStyle\(!busy\)[\s\S]{0,60}disabled=\{busy\}[\s\S]{0,60}onClick=\{recordManualSend\}/.test(pageCode));
+  ok("7. 'Send via Gmail' is disabled unless sendAsVerified is true -- never dispatchable through an unverified identity",
+     /disabled=\{busy \|\| !gmailStatus\?\.sendAsVerified\}/.test(pageCode));
+  ok("8. the compose preview is built via buildBrandedEmail (composer.js), not a second inline HTML template",
+     /buildBrandedEmail\(\{/.test(pageCode));
+  ok("9. the final preview is rendered via an iframe srcDoc showing the EXACT built HTML, not a re-derived approximation",
+     /srcDoc=\{preview\.html\}/.test(pageCode));
+  ok("10. manual-send evidence uses buildManualAttestationIdempotencyKey, matching messageActivity.js's own idempotency discipline",
+     /buildManualAttestationIdempotencyKey\(/.test(pageCode));
+  ok("11. the page still contains no fetch() call anywhere after adding Gmail/launch wiring", !/\bfetch\(/.test(pageCode));
+  ok("12. the page still contains no client.functions.invoke call -- every network action still goes through write.js wrappers", !/\.functions\.invoke\(/.test(pageCode));
+}
+
 console.log(`\n${pass}/${pass + fail} assertions passed${fail ? ` — ${fail} FAILED` : ""}\n`);
 process.exit(fail ? 1 : 0);

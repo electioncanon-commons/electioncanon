@@ -7,6 +7,7 @@ import {
   summarizeBySector, summarizeByLetterVersion, summarizeByAsset,
   listByEngagementFlag, listByConversationInterest, channelCoverageNote,
 } from "../src/domains/outreach/learning.js";
+import { SECTOR } from "../src/domains/outreach/model.js";
 
 let pass = 0, fail = 0;
 const ok = (n, c) => { if (c) { pass++; console.log(`  ok   ${n}`); } else { fail++; console.log(`  FAIL ${n}`); } };
@@ -28,7 +29,7 @@ console.log("A — summarizeBySector()");
   ok("1. DRAFT (never sent) contacts are excluded from the denominator", civicTech.sent === 0);
   ok("2. a sector with zero sent contacts reports rate: null, not 0", civicTech.respondedRate === null);
   ok("3. media: 1 responded of 2 sent -> rate 0.5", media.sent === 2 && media.responded === 1 && media.respondedRate === 0.5);
-  ok("4. every closed SECTOR value appears exactly once", bySector.length === 7);
+  ok("4. every closed SECTOR value appears exactly once (tracks SECTOR's real length, not a hardcoded count)", bySector.length === SECTOR.length);
 }
 
 console.log("\nB — summarizeByLetterVersion()");

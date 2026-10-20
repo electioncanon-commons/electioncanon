@@ -42,7 +42,12 @@ import {
 import {
   listOutreachContacts, listOutreachFollowUps, createOutreachContact, reconcileHistoricalImport,
   updateOutreachContactStatus, createOutreachFollowUp, transitionOutreachFollowUp,
+  listOutreachMessageEvents, recordOutreachMessageEvent,
+  getGmailConnectionStatus, getGmailAuthUrl, verifyGmailSendAs, sendOutreachGmailMessage,
 } from "../../domains/outreach/write.js";
+import { getLaunchSummary } from "../../domains/launch/write.js";
+import { computeActivitySummary, buildManualAttestationIdempotencyKey } from "../../domains/outreach/messageActivity.js";
+import { buildBrandedEmail } from "../../domains/outreach/composer.js";
 
 const panelStyle = { background: "#111418", border: `1px solid ${BORDER}`, padding: 20, marginBottom: 20 };
 const headingStyle = { fontFamily: DISPLAY, fontWeight: 900, fontSize: 16, color: IVORY, margin: "0 0 12px" };
@@ -73,9 +78,20 @@ export default function OutreachControlRoom() {
   const [followUps, setFollowUps] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [tab, setTab] = useState("board"); // board | contacts | import | learning
+  const [tab, setTab] = useState("board"); // board | contacts | import | learning | activity
   const [selectedId, setSelectedId] = useState(null);
   const [importBanner, setImportBanner] = useState(null); // {ok, message} -- survives switching tabs, unlike ImportView's own local state
+  // WORKSPACE A/B (Launch Engine closed-loop). Two separate secrets, two
+  // separate record systems -- launchSecret unlocks ONLY the read-only
+  // public-funnel summary (launch-send-campaign-email's get_summary
+  // action, gated by LAUNCH_ADMIN_SECRET); it is never merged with
+  // `secret` (OUTREACH_ADMIN_SECRET) and never persisted, same discipline
+  // as the outreach secret above.
+  const [workspace, setWorkspace] = useState("outreach"); // "launch" | "outreach"
+  const [launchSecretInput, setLaunchSecretInput] = useState("");
+  const [launchSecret, setLaunchSecret] = useState(null);
+  const [launchSummary, setLaunchSummary] = useState(null);
+  const [launchError, setLaunchError] = useState(null);
 
   const client = isConfigured ? supabase : null;
 
@@ -97,9 +113,49 @@ export default function OutreachControlRoom() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [secret]);
 
+  async function refreshLaunchSummary(activeLaunchSecret) {
+    setLaunchError(null);
+    const r = await getLaunchSummary({ client, adminSecret: activeLaunchSecret });
+    if (!r.ok) { setLaunchError(r.error); setLaunchSummary(null); return; }
+    setLaunchSummary(r.summary);
+  }
+
+  useEffect(() => {
+    if (launchSecret) refreshLaunchSummary(launchSecret);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [launchSecret]);
+
+  if (workspace === "launch") {
+    return (
+      <div style={{ minHeight: "100vh", background: BLACK, padding: "28px clamp(16px,4vw,40px)", fontFamily: UI }}>
+        <WorkspaceSwitcher workspace={workspace} setWorkspace={setWorkspace} />
+        {!launchSecret ? (
+          <div style={{ ...panelStyle, maxWidth: 420 }}>
+            <div style={headingStyle}>Public launch distribution</div>
+            <p style={{ fontFamily: UI, fontSize: 12.5, color: MUTED, lineHeight: 1.5, marginBottom: 14 }}>
+              A separate secret from the outreach admin secret -- this one only unlocks a READ-ONLY summary of the
+              public /launch funnel (confirmed/pending/unsubscribed counts, sequence-sent counts). It is held in
+              this tab only and never stored.
+            </p>
+            <input
+              type="password" value={launchSecretInput} onChange={(e) => setLaunchSecretInput(e.target.value)}
+              placeholder="Launch admin secret" style={{ ...inputStyle, width: "100%", marginBottom: 10, boxSizing: "border-box" }}
+            />
+            <button style={buttonStyle(!!launchSecretInput)} disabled={!launchSecretInput} onClick={() => setLaunchSecret(launchSecretInput)}>
+              Unlock
+            </button>
+          </div>
+        ) : (
+          <LaunchWorkspaceView summary={launchSummary} error={launchError} onRefresh={() => refreshLaunchSummary(launchSecret)} />
+        )}
+      </div>
+    );
+  }
+
   if (!secret) {
     return (
-      <div style={{ minHeight: "100vh", background: BLACK, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div style={{ minHeight: "100vh", background: BLACK, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 20 }}>
+        <div style={{ marginBottom: 16 }}><WorkspaceSwitcher workspace={workspace} setWorkspace={setWorkspace} /></div>
         <div style={{ ...panelStyle, maxWidth: 420, width: "100%" }}>
           <div style={headingStyle}>Outreach control room</div>
           <p style={{ fontFamily: UI, fontSize: 12.5, color: MUTED, lineHeight: 1.5, marginBottom: 14 }}>
@@ -124,10 +180,11 @@ export default function OutreachControlRoom() {
 
   return (
     <div style={{ minHeight: "100vh", background: BLACK, padding: "28px clamp(16px,4vw,40px)", fontFamily: UI }}>
+      <div style={{ marginBottom: 16 }}><WorkspaceSwitcher workspace={workspace} setWorkspace={setWorkspace} /></div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
-        <div style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: 22, color: IVORY }}>Outreach control room</div>
+        <div style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: 22, color: IVORY }}>Direct outreach control room</div>
         <div style={{ display: "flex", gap: 8 }}>
-          {["board", "contacts", "import", "learning"].map((t) => (
+          {["board", "contacts", "import", "activity", "learning"].map((t) => (
             <button key={t} onClick={() => setTab(t)}
               style={{ ...buttonStyle(true), background: tab === t ? TEAL : BORDER, color: tab === t ? BLACK : IVORY }}>
               {t}
@@ -175,7 +232,226 @@ export default function OutreachControlRoom() {
           }
         }}
       />}
+      {tab === "activity" && <ActivityView contacts={contacts} client={client} secret={secret} setError={setError} />}
       {tab === "learning" && <LearningView contacts={contacts} followUps={followUps} />}
+    </div>
+  );
+}
+
+function WorkspaceSwitcher({ workspace, setWorkspace }) {
+  return (
+    <div style={{ display: "flex", gap: 8 }}>
+      {[["launch", "A — Public launch distribution"], ["outreach", "B — Direct outreach"]].map(([key, label]) => (
+        <button key={key} onClick={() => setWorkspace(key)}
+          style={{ ...buttonStyle(true), background: workspace === key ? PINK : BORDER, color: workspace === key ? BLACK : IVORY }}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const statCardStyle = { ...panelStyle, flex: "1 1 160px", minWidth: 160 };
+
+/** Workspace A -- read-only public /launch funnel summary. Never reads/writes a single subscriber row by name; counts only. */
+function LaunchWorkspaceView({ summary, error, onRefresh }) {
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
+        <div style={{ fontFamily: DISPLAY, fontWeight: 900, fontSize: 22, color: IVORY }}>Public launch distribution</div>
+        <button style={buttonStyle(true)} onClick={onRefresh}>Refresh</button>
+      </div>
+      {error && <div style={{ ...panelStyle, borderColor: PINK, color: PINK, fontSize: 12.5 }}>{error}</div>}
+      {!summary && !error && <div style={{ fontFamily: UI, fontSize: 12.5, color: MUTED }}>Loading…</div>}
+      {summary && (
+        <>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
+            <div style={statCardStyle}><div style={labelStyle}>Confirmed (consented)</div><div style={{ fontSize: 28, fontFamily: DISPLAY, color: TEAL }}>{summary.confirmed}</div></div>
+            <div style={statCardStyle}><div style={labelStyle}>Pending confirmation</div><div style={{ fontSize: 28, fontFamily: DISPLAY, color: AMBER }}>{summary.pendingConfirmation}</div></div>
+            <div style={statCardStyle}><div style={labelStyle}>Unsubscribed</div><div style={{ fontSize: 28, fontFamily: DISPLAY, color: PINK }}>{summary.unsubscribed}</div></div>
+          </div>
+          <div style={panelStyle}>
+            <div style={headingStyle}>Sequence readiness and actual sends</div>
+            {[1, 2, 3].map((n) => (
+              <div key={n} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: n < 3 ? `1px solid ${BORDER}` : "none" }}>
+                <span style={{ fontFamily: UI, fontSize: 13, color: IVORY }}>
+                  Sequence {n}
+                  {!summary.sequenceContentReady[n] && <span style={{ color: PINK, marginLeft: 8, fontSize: 11 }}>— content not ready, send blocked server-side</span>}
+                </span>
+                <span style={{ fontFamily: UI, fontSize: 13, color: TEAL }}>{summary[`sequence${n}Sent`]} sent</span>
+              </div>
+            ))}
+          </div>
+          <p style={{ fontFamily: UI, fontSize: 11.5, color: MUTED, marginTop: 14, lineHeight: 1.5 }}>
+            This is the ONLY place this control room reads public-funnel data, and it is read-only, aggregate counts
+            only -- no subscriber email, token, or individual row is ever shown here. Consent/unsubscribe handling
+            itself is unchanged -- see /launch/confirm and /launch/unsubscribe.
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Workspace B's evidence-layer tab -- the four truthful message states
+ * for whichever contact is selected (same selection state the board/
+ * contacts tabs already use), a Gmail connection status panel, and a
+ * minimal compose-preview-approve-send flow built on composer.js +
+ * outreach-gmail. SENDING FROM HERE requires Gmail OAuth to actually be
+ * connected (see docs/OUTREACH-GMAIL-SETUP.md) -- until then, "Record a
+ * manual send" remains fully functional and is the honest, always-
+ * available path.
+ */
+function ActivityView({ contacts, client, secret, setError }) {
+  const [selectedContactId, setSelectedContactId] = useState(contacts[0]?.id || "");
+  const [events, setEvents] = useState([]);
+  const [gmailStatus, setGmailStatus] = useState(null);
+  const [draftSubject, setDraftSubject] = useState("");
+  const [draftBody, setDraftBody] = useState("");
+  const [preview, setPreview] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const [authUrl, setAuthUrl] = useState(null);
+
+  useEffect(() => {
+    if (selectedContactId) listOutreachMessageEvents({ client, adminSecret: secret, contactId: selectedContactId }).then((r) => setEvents(r.ok ? r.events : []));
+  }, [selectedContactId, client, secret]);
+
+  useEffect(() => {
+    getGmailConnectionStatus({ client, adminSecret: secret }).then((r) => setGmailStatus(r.ok ? r.status : null));
+  }, [client, secret]);
+
+  const selectedContact = contacts.find((c) => c.id === selectedContactId) || null;
+  const summary = computeActivitySummary(events);
+
+  function buildPreview() {
+    const built = buildBrandedEmail({
+      subject: draftSubject, bodyText: draftBody,
+      recipientName: selectedContact?.recipientName, organization: selectedContact?.organization,
+    });
+    setPreview(built);
+  }
+
+  async function recordManualSend() {
+    if (!selectedContact) return;
+    setBusy(true);
+    const occurredAt = new Date().toISOString();
+    const r = await recordOutreachMessageEvent({
+      client, adminSecret: secret, contactId: selectedContact.id, direction: "OUTBOUND", activityState: "SENT",
+      provider: "MANUAL_ATTESTATION", occurredAt, recipientEmail: selectedContact.recipientEmail, subject: draftSubject || preview?.subject,
+      idempotencyKey: buildManualAttestationIdempotencyKey({ contactId: selectedContact.id, occurredAt }),
+    });
+    setResult(r);
+    if (!r.ok) setError(r.error);
+    if (r.ok) listOutreachMessageEvents({ client, adminSecret: secret, contactId: selectedContact.id }).then((r2) => setEvents(r2.ok ? r2.events : []));
+    setBusy(false);
+  }
+
+  async function sendViaGmail() {
+    if (!selectedContact || !preview?.valid) return;
+    setBusy(true);
+    const confirmationId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const r = await sendOutreachGmailMessage({
+      client, adminSecret: secret, contactId: selectedContact.id, to: selectedContact.recipientEmail,
+      subject: preview.subject, html: preview.html, text: preview.text, confirmationId, approved: true,
+    });
+    setResult(r);
+    if (!r.ok) setError(r.error);
+    if (r.ok) listOutreachMessageEvents({ client, adminSecret: secret, contactId: selectedContact.id }).then((r2) => setEvents(r2.ok ? r2.events : []));
+    setBusy(false);
+  }
+
+  return (
+    <div>
+      <div style={panelStyle}>
+        <div style={headingStyle}>Gmail connection</div>
+        {!gmailStatus && <div style={{ fontFamily: UI, fontSize: 12, color: MUTED }}>Loading…</div>}
+        {gmailStatus && !gmailStatus.configured && (
+          <p style={{ fontFamily: UI, fontSize: 12.5, color: AMBER, lineHeight: 1.5 }}>
+            Not configured -- missing: {gmailStatus.missingConfig.join(", ")}. See docs/OUTREACH-GMAIL-SETUP.md for the exact setup steps.
+            "Record a manual send" below remains fully available regardless.
+          </p>
+        )}
+        {gmailStatus && gmailStatus.configured && (
+          <>
+            <p style={{ fontFamily: UI, fontSize: 12.5, color: gmailStatus.connected ? TEAL : AMBER, lineHeight: 1.5 }}>
+              {gmailStatus.connected
+                ? `Connected as ${gmailStatus.googleAccountEmail}. Send-as ${gmailStatus.sendAsIdentity}: ${gmailStatus.sendAsVerified ? "verified" : "NOT verified."}`
+                : "Configured but not yet connected."}
+            </p>
+            <div style={{ display: "flex", gap: 8 }}>
+              {!gmailStatus.connected && (
+                <button style={buttonStyle(true)} onClick={async () => { const r = await getGmailAuthUrl({ client, adminSecret: secret }); if (r.ok) setAuthUrl(r.authUrl); else setError(r.error); }}>
+                  Get connect link
+                </button>
+              )}
+              {gmailStatus.connected && !gmailStatus.sendAsVerified && (
+                <button style={buttonStyle(true)} onClick={async () => {
+                  const r = await verifyGmailSendAs({ client, adminSecret: secret });
+                  if (!r.ok) setError(r.error);
+                  getGmailConnectionStatus({ client, adminSecret: secret }).then((r2) => setGmailStatus(r2.ok ? r2.status : null));
+                }}>
+                  Verify send-as identity
+                </button>
+              )}
+            </div>
+            {authUrl && (
+              <p style={{ fontSize: 11.5, color: MUTED, marginTop: 8 }}>
+                Open in a browser signed into the authorized Gmail account: <a href={authUrl} target="_blank" rel="noreferrer" style={{ color: TEAL }}>{authUrl}</a>
+              </p>
+            )}
+          </>
+        )}
+      </div>
+
+      <div style={panelStyle}>
+        <div style={headingStyle}>Select a contact</div>
+        <select style={{ ...inputStyle, width: "100%" }} value={selectedContactId} onChange={(e) => setSelectedContactId(e.target.value)}>
+          {contacts.map((c) => <option key={c.id} value={c.id}>{c.organization} — {c.recipientEmail}</option>)}
+        </select>
+      </div>
+
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 20 }}>
+        <div style={statCardStyle}><div style={labelStyle}>Prepared</div><div style={{ fontSize: 28, fontFamily: DISPLAY, color: IVORY }}>{summary.preparedCount}</div></div>
+        <div style={statCardStyle}><div style={labelStyle}>Sent (verified)</div><div style={{ fontSize: 28, fontFamily: DISPLAY, color: TEAL }}>{summary.sentCount}</div></div>
+        <div style={statCardStyle}><div style={labelStyle}>Replies received</div><div style={{ fontSize: 28, fontFamily: DISPLAY, color: AMBER }}>{summary.replyReceivedCount}</div></div>
+        <div style={statCardStyle}><div style={labelStyle}>Needs review</div><div style={{ fontSize: 28, fontFamily: DISPLAY, color: PINK }}>{summary.needsReviewCount}</div></div>
+      </div>
+
+      <div style={panelStyle}>
+        <div style={headingStyle}>Message history (this contact)</div>
+        {events.length === 0 && <div style={{ fontFamily: UI, fontSize: 12, color: MUTED }}>No recorded message activity yet.</div>}
+        {events.map((e) => (
+          <div key={e.id} style={{ fontSize: 12, fontFamily: UI, color: IVORY, padding: "6px 0", borderBottom: `1px solid ${BORDER}` }}>
+            <span style={{ color: e.direction === "INBOUND" ? AMBER : TEAL }}>{e.direction}</span> · {e.activity_state} · {e.provider}
+            {e.provider_message_id ? ` · ${e.provider_message_id}` : ""} · {e.occurred_at}
+          </div>
+        ))}
+      </div>
+
+      <div style={panelStyle}>
+        <div style={headingStyle}>Compose (branded HTML preview)</div>
+        <input style={{ ...inputStyle, width: "100%", marginBottom: 8, boxSizing: "border-box" }} placeholder="Subject" value={draftSubject} onChange={(e) => setDraftSubject(e.target.value)} />
+        <textarea style={{ ...inputStyle, width: "100%", minHeight: 120, marginBottom: 8, boxSizing: "border-box" }} placeholder="Body (plain text -- blank lines separate paragraphs)" value={draftBody} onChange={(e) => setDraftBody(e.target.value)} />
+        <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+          <button style={buttonStyle(!!(draftSubject && draftBody))} disabled={!draftSubject || !draftBody} onClick={buildPreview}>Build preview</button>
+        </div>
+        {preview && !preview.valid && <div style={{ color: PINK, fontSize: 12 }}>{preview.error}</div>}
+        {preview?.valid && (
+          <>
+            <div style={{ fontSize: 11, color: MUTED, marginBottom: 6 }}>Exact HTML that would be sent (this is the final-approval preview -- it matches the outgoing message exactly):</div>
+            <iframe title="email preview" srcDoc={preview.html} style={{ width: "100%", height: 320, border: `1px solid ${BORDER}`, background: "#fff", marginBottom: 10 }} />
+            <div style={{ display: "flex", gap: 8 }}>
+              <button style={buttonStyle(!busy)} disabled={busy} onClick={recordManualSend}>Record a manual send (always available)</button>
+              <button style={buttonStyle(!busy && gmailStatus?.sendAsVerified)} disabled={busy || !gmailStatus?.sendAsVerified} onClick={sendViaGmail}>
+                Send via Gmail {gmailStatus?.sendAsVerified ? "" : "(requires a verified send-as identity)"}
+              </button>
+            </div>
+          </>
+        )}
+        {result && <div style={{ marginTop: 10, fontSize: 12, color: result.ok ? TEAL : PINK }}>{result.ok ? "Recorded." : result.error}</div>}
+      </div>
     </div>
   );
 }

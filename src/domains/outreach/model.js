@@ -53,6 +53,17 @@ export const SECTOR = Object.freeze([
   "open_source_dev",
   "institutional_partner",
   "other",
+  // Political-office categories (Launch Engine closed-loop, Workspace B) --
+  // mirrors 20261014000000_election_outreach_message_activity.sql's
+  // expanded check constraint exactly. These are OFFICE-mediated
+  // categories, not a claim that any individual recipient is
+  // candidate-specific -- see OutreachControlRoom.jsx's own labelling.
+  "presidential_campaign",
+  "governorship_campaign",
+  "senate_campaign",
+  "house_of_reps_campaign",
+  "state_assembly_campaign",
+  "party_secretariat",
 ]);
 
 export const SECTOR_LABEL = Object.freeze({
@@ -63,6 +74,12 @@ export const SECTOR_LABEL = Object.freeze({
   open_source_dev: "Open-source / developer community",
   institutional_partner: "Institutional partner",
   other: "Other",
+  presidential_campaign: "Presidential campaign",
+  governorship_campaign: "Governorship campaign",
+  senate_campaign: "Senate campaign",
+  house_of_reps_campaign: "House of Representatives campaign",
+  state_assembly_campaign: "State House of Assembly campaign",
+  party_secretariat: "Party secretariat (office-mediated)",
 });
 
 // The full outreach pipeline (Phase 3). DRAFT is the only status with no

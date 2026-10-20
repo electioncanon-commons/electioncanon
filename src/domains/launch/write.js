@@ -66,6 +66,27 @@ export async function unsubscribeLaunchSubscription({ client, token }) {
   }
 }
 
+/**
+ * Read-only summary (Launch Engine closed-loop, Workspace A) -- confirmed/
+ * pending/unsubscribed counts and per-sequence sent counts, no PII. Reuses
+ * launch-send-campaign-email's existing LAUNCH_ADMIN_SECRET gate rather
+ * than a new endpoint/secret for one summary query.
+ */
+export async function getLaunchSummary({ client, adminSecret }) {
+  if (!client) return { ok: false, error: "the launch summary is not available in this preview" };
+  if (!adminSecret) return { ok: false, error: "a launch admin secret is required" };
+  try {
+    const { data, error } = await client.functions.invoke("launch-send-campaign-email", {
+      body: { action: "get_summary" }, headers: { Authorization: `Bearer ${adminSecret}` },
+    });
+    if (error) return { ok: false, error: error.message || "could not read the launch summary" };
+    if (!data?.ok) return { ok: false, error: data?.reason || "could not read the launch summary" };
+    return { ok: true, error: null, summary: data };
+  } catch (err) {
+    return { ok: false, error: err?.message || "could not read the launch summary" };
+  }
+}
+
 /** Best-effort, never throws -- a failed analytics write must never break the page it's recording. */
 export async function recordLaunchEvent({
   client, eventType, sourceCampaign = null, referralId = null,

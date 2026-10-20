@@ -13,6 +13,7 @@ import {
   validateContactPayload, validateListContactsRequest, validateImportRequest, validateStatusTransition,
   validateUpdateStatusRequest, validateCreateFollowUpRequest, validateFollowUpTransition, validateTransitionFollowUpRequest,
   validateHistoricalReconcileRequest, hasHistoricalEvent,
+  validateRecordMessageEventRequest, validateListMessageEventsRequest,
 } from "../supabase/functions/outreach-admin/contract.mjs";
 import { stripComments } from "./lib/source.mjs";
 
@@ -99,7 +100,7 @@ console.log("\nE — source scan: admin gate, dispatch, and NO email-sending cap
   ok("2. an incorrect/missing secret is refused with UNAUTHENTICATED/401", /authHeader !== `Bearer \$\{adminSecret\}`[\s\S]{0,200}"UNAUTHENTICATED",\s*401/.test(indexCode));
   ok("3. every documented action is dispatched", [
     "list_contacts", "list_followups", "create_contact", "import_contacts", "reconcile_historical_import",
-    "update_contact_status", "create_followup", "transition_followup",
+    "update_contact_status", "create_followup", "transition_followup", "record_message_event", "list_message_events",
   ].every((a) => indexCode.includes(`"${a}"`)));
   ok("4. an unrecognized action falls through to a BAD_REQUEST refusal", /unknown action:/.test(indexCode));
   ok("5. no fetch() call anywhere -- this function cannot call any external provider", !/\bfetch\(/.test(indexCode));
@@ -138,6 +139,42 @@ console.log("\nF — source scan: reconcile_historical_import (Phase 7 historica
   ok("10. no email-provider reference was introduced by this action either", !/brevo|resend|smtp/i.test(indexCode));
   ok("11. the response reports created/linked/alreadyRecorded/failed counts, not a generic 'ok' with no detail",
      /created, linked_existing: linkedExisting, linked_new_batch: linkedNewBatch,\s*already_recorded: alreadyRecorded, failed,/.test(indexCode));
+}
+
+console.log("\nG — validateRecordMessageEventRequest() / validateListMessageEventsRequest() (Launch Engine closed-loop, Phase 3)");
+{
+  ok("1. SECTOR now includes the five political-office categories plus party_secretariat",
+     ["presidential_campaign", "governorship_campaign", "senate_campaign", "house_of_reps_campaign", "state_assembly_campaign", "party_secretariat"]
+       .every((s) => SECTOR.includes(s)));
+
+  const base = { contactId: "c1", direction: "OUTBOUND", activityState: "PREPARED", provider: "GMAIL", idempotencyKey: "k1" };
+  ok("2. a PREPARED event needs no providerMessageId", validateRecordMessageEventRequest(base).valid === true);
+  ok("3. a GMAIL SENT event with no providerMessageId is refused",
+     validateRecordMessageEventRequest({ ...base, activityState: "SENT" }).valid === false);
+  ok("4. a GMAIL SENT event with a providerMessageId is accepted",
+     validateRecordMessageEventRequest({ ...base, activityState: "SENT", providerMessageId: "18x" }).valid === true);
+  ok("5. a MANUAL_ATTESTATION SENT event needs occurredAt, not a providerMessageId",
+     validateRecordMessageEventRequest({ ...base, activityState: "SENT", provider: "MANUAL_ATTESTATION" }).valid === false);
+  ok("6. ...and passes once occurredAt is supplied",
+     validateRecordMessageEventRequest({ ...base, activityState: "SENT", provider: "MANUAL_ATTESTATION", occurredAt: "2026-10-14T00:00:00Z" }).valid === true);
+  ok("7. an INBOUND event must be REPLY_RECEIVED",
+     validateRecordMessageEventRequest({ ...base, direction: "INBOUND", activityState: "SENT", providerMessageId: "x" }).valid === false);
+  ok("8. a missing idempotencyKey is always rejected", validateRecordMessageEventRequest({ ...base, idempotencyKey: "" }).valid === false);
+  ok("9. an out-of-vocabulary provider is rejected", validateRecordMessageEventRequest({ ...base, provider: "BOGUS" }).valid === false);
+  ok("10. list_message_events with no filters is valid", validateListMessageEventsRequest({}).valid === true);
+  ok("11. list_message_events accepts a contactId filter", validateListMessageEventsRequest({ contactId: "c1" }).valid === true);
+}
+
+console.log("\nH — source scan: record_message_event / list_message_events (evidence layer, still no sending)");
+{
+  ok("1. record_message_event is validated server-side before any write", /validateRecordMessageEventRequest\(body\)/.test(indexCode));
+  ok("2. a duplicate idempotency_key is checked BEFORE insert, and reported as already-recorded rather than erroring",
+     /idempotency_key", validation\.idempotencyKey\)[\s\S]{0,120}alreadyRecorded: true/.test(indexCode));
+  ok("3. the contact must exist before a message event can be recorded against it",
+     /outreach_contacts"\)\.select\("id"\)\.eq\("id", validation\.contactId\)\.maybeSingle\(\)/.test(indexCode));
+  ok("4. list_message_events is validated server-side too", /validateListMessageEventsRequest\(body\)/.test(indexCode));
+  ok("5. still no fetch() call anywhere in this file after adding the evidence-layer actions", !/\bfetch\(/.test(indexCode));
+  ok("6. still no email-provider reference anywhere", !/brevo|resend|smtp/i.test(indexCode));
 }
 
 console.log(`\n${pass}/${pass + fail} assertions passed${fail ? ` — ${fail} FAILED` : ""}\n`);
